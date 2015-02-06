@@ -44,9 +44,16 @@ class Client {
         try {
 	        byte[] buffer = new byte[CH_SIZE];
 	        in = new FileInputStream(f);
-            for (int i = 0; in.read(buffer) != -1 ; i++){
-            	jo = this.sendChunk(jo, buffer, i);
+	        int current_chunk;
+            for (current_chunk = 0; (current_chunk < chunk_num - 1) && (in.read(buffer) != -1) ; current_chunk++){
+            	jo = this.sendChunk(jo, buffer, current_chunk);
 	        }
+            // Last chunk
+            int last_chunk_size = (int) (f.length() % CH_SIZE);
+            if (last_chunk_size == 0) last_chunk_size = CH_SIZE;
+            buffer = new byte[last_chunk_size];
+            in.read(buffer);
+            jo = this.sendChunk(jo, buffer, current_chunk);
         } catch (Exception e) {
         	e.printStackTrace();
         } finally { 
@@ -108,7 +115,6 @@ class Client {
 		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
 		httpCon.setRequestProperty("If-Match", rev_id);
 		InputStream response = httpCon.getInputStream();
-//		FileOutputStream fs = new FileOutputStream("chunk" + chunkN);
 		if (fs == null){
 			fs = new FileOutputStream("out_file.png");
 		}
