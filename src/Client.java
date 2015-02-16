@@ -6,8 +6,14 @@ import java.io.File;
 import java.lang.Math;
 import java.net.URL;
 import java.net.HttpURLConnection;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.io.InputStream;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.InputStreamReader;
@@ -28,17 +34,28 @@ class Client {
 	private static String DB_SERVER = "127.0.0.1";
 	private static String DB_PORT = "5984";
 	
+	private ExecutorService executor;
+	
+	public Client(){
+		this.executor = Executors.newFixedThreadPool(1); 
+	}
+	
 	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException {
-		FileOutputStream fs = null;
+		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
+				Paths.get("out_file.png"), StandardOpenOption.READ,
+		        StandardOpenOption.WRITE, StandardOpenOption.CREATE);
 		
 		int flength = this.getFileLength(doc_id, doc_rev);
 		int current_chunk;
 		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE); // TODO: safe cast from long
+		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		System.out.println("Chunks to receive: " + chunk_num);
 		for (current_chunk = 0; current_chunk < chunk_num; current_chunk++){
-			fs = this.receiveChunk(doc_id, doc_rev, fs, current_chunk*CH_SIZE, (current_chunk+1)*CH_SIZE);
+			int start = current_chunk*CH_SIZE;
+			int end = (current_chunk+1)*CH_SIZE;
+			if (end > flength) end = flength;
+			Future<Integer> response = executor.submit(new AsyncGet(url, doc_id, start, end, fileChannel));
 		}
-		fs.close();
 		System.out.println("Download finished!");
 	}
 	
