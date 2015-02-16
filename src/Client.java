@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.io.InputStream;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -40,7 +41,7 @@ class Client {
 		this.executor = Executors.newFixedThreadPool(1); 
 	}
 	
-	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException {
+	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {
 		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
 				Paths.get("out_file.png"), StandardOpenOption.READ,
 		        StandardOpenOption.WRITE, StandardOpenOption.CREATE);
@@ -50,11 +51,24 @@ class Client {
 		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE); // TODO: safe cast from long
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		System.out.println("Chunks to receive: " + chunk_num);
+		
+		Future<Integer>[] responses = new Future[chunk_num];
 		for (current_chunk = 0; current_chunk < chunk_num; current_chunk++){
 			int start = current_chunk*CH_SIZE;
 			int end = (current_chunk+1)*CH_SIZE;
 			if (end > flength) end = flength;
-			Future<Integer> response = executor.submit(new AsyncGet(url, doc_id, start, end, fileChannel));
+			responses[current_chunk] = executor.submit(new AsyncGet(url, doc_id, start, end, fileChannel));
+		}
+		
+		// Wait for completion of all tasks
+		boolean done = true;
+		for (int i = 0; i < chunk_num; i++) {
+//			System.out.println(responses[i].isDone());
+			done = done && responses[i].isDone();
+			if ((i + 1 == chunk_num) && !done){
+				i = -1;
+				done = true;
+			}
 		}
 		System.out.println("Download finished!");
 	}

@@ -4,6 +4,7 @@ import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
 
 
 public class AsyncGet implements Callable<Integer>{
@@ -34,10 +35,10 @@ public class AsyncGet implements Callable<Integer>{
 		InputStream response = httpCon.getInputStream();
 		byte [] buffer = new byte[end-start];
 		response.read(buffer);
-		fileChannel.write(ByteBuffer.wrap(buffer), start);
+		Future<Integer> result = fileChannel.write(ByteBuffer.wrap(buffer), start);
 		response.close();
 		// meaningful response?
-		return 1;
+		return result.get();
 	}
 
 }
