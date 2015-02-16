@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
+
 import org.json.JSONObject;
 import org.apache.commons.io.IOUtils;
 
@@ -27,26 +28,25 @@ class Client {
 	private static String DB_SERVER = "127.0.0.1";
 	private static String DB_PORT = "5984";
 	
-//	public void receiveChunkedFile(String doc_id, String doc_rev) throws Exception {
-//		FileOutputStream fs = null;
-//		int c_num = getChunkNum(doc_id);
-//		for (int i = 0; i < c_num; i++) {
-//			fs = this.receiveChunk(doc_id, doc_rev, i, fs);
-//		}
-//		fs.close();
-//		System.out.println("Download finished!");
-//	}
+	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException {
+		FileOutputStream fs = null;
+		
+		int flength = this.getFileLength(doc_id, doc_rev);
+		int current_chunk;
+		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE); // TODO: safe cast from long
+		System.out.println("Chunks to receive: " + chunk_num);
+		for (current_chunk = 0; current_chunk < chunk_num; current_chunk++){
+			fs = this.receiveChunk(doc_id, doc_rev, fs, current_chunk*CH_SIZE, (current_chunk+1)*CH_SIZE);
+		}
+		fs.close();
+		System.out.println("Download finished!");
+	}
 	
-	public void sendChunkedFile(String filename) throws Exception {
+	public JSONObject sendChunkedFile(String filename, String docId, String revId) throws Exception {
 		// Create new doc
 		FileInputStream in = null;
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
-		String resp_json = this.createNewDoc(chunk_num);
-		if (resp_json.equals("")) throw new Exception("Document not created");
-		JSONObject jo = new JSONObject(resp_json);
-		String docId = jo.getString("id");
-		String revId = jo.getString("rev");
 		// Read document in chunks and upload them as attachments.
         try {
 	        byte[] buffer = new byte[CH_SIZE];
@@ -60,9 +60,11 @@ class Client {
             if (last_chunk_size == 0) last_chunk_size = CH_SIZE;
             buffer = new byte[last_chunk_size];
             in.read(buffer);
-            this.sendChunk(buffer, docId, revId);
+            JSONObject jo = this.sendChunk(buffer, docId, revId);
+            return jo;
         } catch (Exception e) {
         	e.printStackTrace();
+        	return null;
         } finally { 
              if ( in != null ) in.close();
              System.out.println("Upload finished!");
@@ -70,7 +72,7 @@ class Client {
 	}
 	
 	// Sends a byte array as an individual attachment
-	public void sendChunk(byte[] chunk, String docId, String revId) throws Exception{
+	public JSONObject sendChunk(byte[] chunk, String docId, String revId) throws Exception{
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 		httpCon.setDoOutput(true);
@@ -86,10 +88,15 @@ class Client {
 		InputStream response = httpCon.getInputStream();
 		String resp_str = convertStreamToString(response);
 		response.close();
+		if (!resp_str.equals("Chunk received")) {
+			return new JSONObject(resp_str);
+		} else {
+			return null;
+		}
 	}
 
 	// Creates a doc with random id
-	public String createNewDoc(int chunk_num) {
+	public JSONObject createNewDoc() {
 		try {
 			String doc_id = "a" + UUID.randomUUID().toString();
 			URL url = new URL("http://" + DB_SERVER + ":" + DB_PORT + "/"
@@ -100,48 +107,50 @@ class Client {
 			httpCon.setRequestProperty("Content-Type", "application/json");
 			OutputStreamWriter out = new OutputStreamWriter(
 			    httpCon.getOutputStream());
-			out.write("{\"chunks\":" + chunk_num + "}");
+			out.write("{}");
 			out.close();
 			InputStream response = httpCon.getInputStream();
 			String resp_string = convertStreamToString(response);
 			response.close();
-			return resp_string;
+			JSONObject jo = new JSONObject(resp_string); 
+			System.out.println("Doc created: " + jo.getString("id"));
+			return jo;
 		} catch (Exception e) {
 			e.printStackTrace();
-			return "";
+			return null;
 		}
 	}
 //
 //	
-//	public FileOutputStream receiveChunk(String doc_id, String rev_id, int chunkN, FileOutputStream fs) throws Exception{
-//		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH + "/"
-//				  + doc_id + "/chunk" + chunkN + ".txt");
-//		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-//		httpCon.setDoOutput(true);
-//		httpCon.setRequestMethod("GET");
-//		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-//		httpCon.setRequestProperty("If-Match", rev_id);
-//		InputStream response = httpCon.getInputStream();
-//		if (fs == null){
-//			fs = new FileOutputStream("out_file.png");
-//		}
-//		IOUtils.copy(response,fs);
-//		response.close();
-//		return fs;
-//	}
-	
-	private int getChunkNum(String doc_id) throws Exception{
-		URL url = new URL("http://" + SERVER + ":" + PORT + "/" +
-						  PATH + "/" + doc_id);
+	public FileOutputStream receiveChunk(String doc_id, String rev_id, FileOutputStream fs, int start, int end) throws IOException{
+		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 		httpCon.setDoOutput(true);
 		httpCon.setRequestMethod("GET");
 		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
+		httpCon.setRequestProperty("Start", "" + start);
+		httpCon.setRequestProperty("End", "" + end);
+		httpCon.setRequestProperty("DocId", "" + doc_id);
 		InputStream response = httpCon.getInputStream();
-		String resp_json = convertStreamToString(response);
+		if (fs == null){
+			fs = new FileOutputStream("out_file.png");
+		}
+		IOUtils.copy(response,fs);
 		response.close();
-		JSONObject jo_new = new JSONObject(resp_json);
-		return jo_new.getInt("chunks");
+		return fs;
+	}
+	
+	private int getFileLength(String doc_id, String rev_id) throws IOException {
+		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
+		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+		httpCon.setDoOutput(true);
+		httpCon.setRequestMethod("GET");
+		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
+		httpCon.setRequestProperty("DocId", "" + doc_id);
+		httpCon.setRequestProperty("RevId", "" + rev_id);
+		InputStream response = httpCon.getInputStream();
+		String length = convertStreamToString(response);
+		return Integer.parseInt(length);
 	}
 	
 	// Read server response into string
