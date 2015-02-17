@@ -37,7 +37,6 @@ public class AsyncGet implements Callable<Integer>{
 		response.read(buffer);
 		Future<Integer> result = fileChannel.write(ByteBuffer.wrap(buffer), start);
 		response.close();
-		// meaningful response?
 		return result.get();
 	}
 

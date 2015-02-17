@@ -38,7 +38,7 @@ class Client {
 	private ExecutorService executor;
 	
 	public Client(){
-		this.executor = Executors.newFixedThreadPool(1); 
+		this.executor = Executors.newFixedThreadPool(4); 
 	}
 	
 	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {
@@ -47,13 +47,12 @@ class Client {
 		        StandardOpenOption.WRITE, StandardOpenOption.CREATE);
 		
 		int flength = this.getFileLength(doc_id, doc_rev);
-		int current_chunk;
 		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE); // TODO: safe cast from long
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		System.out.println("Chunks to receive: " + chunk_num);
 		
 		Future<Integer>[] responses = new Future[chunk_num];
-		for (current_chunk = 0; current_chunk < chunk_num; current_chunk++){
+		for (int current_chunk = 0; current_chunk < chunk_num; current_chunk++){
 			int start = current_chunk*CH_SIZE;
 			int end = (current_chunk+1)*CH_SIZE;
 			if (end > flength) end = flength;
@@ -73,44 +72,52 @@ class Client {
 		System.out.println("Download finished!");
 	}
 	
-	public JSONObject sendChunkedFile(String filename, String docId, String revId) throws Exception {
-		// Create new doc
-		FileInputStream in = null;
+	public JSONObject sendChunkedFile(String filename, String doc_id, String rev_id) throws Exception {
+		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
+				Paths.get(filename), StandardOpenOption.READ,
+		        StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+		
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
-		// Read document in chunks and upload them as attachments.
-        try {
-	        byte[] buffer = new byte[CH_SIZE];
-	        in = new FileInputStream(f);
-	        int current_chunk;
-            for (current_chunk = 0; (current_chunk < chunk_num - 1) && (in.read(buffer) != -1) ; current_chunk++){
-            	this.sendChunk(buffer, null, null);
-	        }
-            // Last chunk
-            int last_chunk_size = (int) (f.length() % CH_SIZE);
-            if (last_chunk_size == 0) last_chunk_size = CH_SIZE;
-            buffer = new byte[last_chunk_size];
-            in.read(buffer);
-            JSONObject jo = this.sendChunk(buffer, docId, revId);
-            return jo;
-        } catch (Exception e) {
-        	e.printStackTrace();
-        	return null;
-        } finally { 
-             if ( in != null ) in.close();
-             System.out.println("Upload finished!");
-        }
+		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
+		
+		Future<String>[] responses = new Future[chunk_num];
+		for (int current_chunk = 0; current_chunk < chunk_num; current_chunk++){
+			int start = current_chunk*CH_SIZE;
+			int end = (current_chunk+1)*CH_SIZE;
+			responses[current_chunk] = executor.submit(new AsyncPost(fileChannel, url, doc_id, null, start, end));
+		}
+		
+		// Wait for completion of all tasks
+		boolean done = true;
+		for (int i = 0; i < chunk_num; i++) {
+			//System.out.println(responses[i].isDone());
+			done = done && responses[i].isDone();
+			if ((i + 1 == chunk_num) && !done){
+				i = -1;
+				done = true;
+			}
+		}
+		
+		// Tell server to send the file.
+		Future<String> response = executor.submit(new AsyncPost(null, url, doc_id, rev_id, 0, 0));
+		JSONObject jo = new JSONObject(response.get());
+
+		System.out.println("Upload finished!");
+		return jo;
 	}
 	
 	// Sends a byte array as an individual attachment
-	public JSONObject sendChunk(byte[] chunk, String docId, String revId) throws Exception{
+	public JSONObject sendChunk(byte[] chunk, String docId, String revId, int start, int end) throws Exception{
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 		httpCon.setDoOutput(true);
 		httpCon.setRequestMethod("PUT");
 		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-		if (docId != null && revId != null){
-			httpCon.setRequestProperty("DocID", "" + docId);
+		httpCon.setRequestProperty("DocID", "" + docId);
+		httpCon.setRequestProperty("Start", "" + start);
+		httpCon.setRequestProperty("End", "" + end);
+		if (revId != null){
 			httpCon.setRequestProperty("RevID", "" + revId);
 		}
 		ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
@@ -150,25 +157,6 @@ class Client {
 			e.printStackTrace();
 			return null;
 		}
-	}
-//
-//	
-	public FileOutputStream receiveChunk(String doc_id, String rev_id, FileOutputStream fs, int start, int end) throws IOException{
-		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
-		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-		httpCon.setDoOutput(true);
-		httpCon.setRequestMethod("GET");
-		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-		httpCon.setRequestProperty("Start", "" + start);
-		httpCon.setRequestProperty("End", "" + end);
-		httpCon.setRequestProperty("DocId", "" + doc_id);
-		InputStream response = httpCon.getInputStream();
-		if (fs == null){
-			fs = new FileOutputStream("out_file.png");
-		}
-		IOUtils.copy(response,fs);
-		response.close();
-		return fs;
 	}
 	
 	private int getFileLength(String doc_id, String rev_id) throws IOException {
