@@ -118,7 +118,9 @@ class Client {
 			al.clear();
 			for (int i = 0; i < responses.length; i++) {
 				try {
-					responses[i].get();
+					String out = responses[i].get();
+//					System.out.println(out);
+					if (!out.equals("Chunk received")) al.add(i);
 				} catch (ExecutionException e) {
 					al.add(i);
 				}
@@ -132,10 +134,9 @@ class Client {
 		while (retry) {
 			try {
 				output = response.get();
-				retry = false;
+				if (!output.equals("Not received.")) retry = false;
 			} catch (ExecutionException e) {
 				// Do nothing, just retry
-				retry = true;
 			}
 		}
 		JSONObject jo = new JSONObject(output);

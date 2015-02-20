@@ -9,6 +9,8 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -35,7 +37,7 @@ public class AsyncPut implements Callable<String>{
 	}
 	
 	@Override
-	public String call() throws IOException, InterruptedException, ExecutionException, SocketTimeoutException {
+	public String call() throws IOException, InterruptedException, ExecutionException, SocketTimeoutException, NoSuchAlgorithmException {
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 		
 		// TIMEOUT
@@ -53,12 +55,14 @@ public class AsyncPut implements Callable<String>{
 		} else {
 			httpCon.setRequestProperty("Start", "" + start);
 			httpCon.setRequestProperty("End", "" + end);
-			ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
 			byte [] buffer = new byte[end-start];
 			// TODO: might be a better way to do this.
 			Future<Integer> result = fileChannel.read(ByteBuffer.wrap(buffer), start);
 			// Wait for it to finish
 			result.get();
+			MessageDigest md = MessageDigest.getInstance("MD5");
+			httpCon.setRequestProperty("MD5", bytesToHex(md.digest(buffer)));
+			ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
 			out.write(buffer);
 			out.close();
 		}
@@ -76,9 +80,19 @@ public class AsyncPut implements Callable<String>{
 		String read = br.readLine();
 		while(read != null) {
 		    sb.append(read);
-		    read =br.readLine();
+		    read = br.readLine();
 		}
 		return sb.toString();
 	}
-
+	
+	public static String bytesToHex(byte[] bytes) {
+		char[] hexArray = "0123456789ABCDEF".toCharArray();
+	    char[] hexChars = new char[bytes.length * 2];
+	    for ( int j = 0; j < bytes.length; j++ ) {
+	        int v = bytes[j] & 0xFF;
+	        hexChars[j * 2] = hexArray[v >>> 4];
+	        hexChars[j * 2 + 1] = hexArray[v & 0x0F];
+	    }
+	    return new String(hexChars);
+	}
 }
