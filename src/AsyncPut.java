@@ -4,16 +4,19 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.ProtocolException;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import org.json.JSONObject;
 
 
-public class AsyncPost implements Callable<String>{
+public class AsyncPut implements Callable<String>{
 
 	private URL url;
 	private String doc_id;
@@ -22,7 +25,7 @@ public class AsyncPost implements Callable<String>{
 	private int end;
 	private AsynchronousFileChannel fileChannel;
 	
-	public AsyncPost(AsynchronousFileChannel fileChannel, URL url, String doc_id, String rev_id, int start, int end) {
+	public AsyncPut(AsynchronousFileChannel fileChannel, URL url, String doc_id, String rev_id, int start, int end) {
 		this.url = url;
 		this.doc_id = doc_id;
 		this.start = start;
@@ -32,12 +35,19 @@ public class AsyncPost implements Callable<String>{
 	}
 	
 	@Override
-	public String call() throws Exception {
+	public String call() throws IOException, InterruptedException, ExecutionException, SocketTimeoutException {
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+		
+		// TIMEOUT
+		int timeout = 3000;
+		httpCon.setConnectTimeout(timeout);
+		httpCon.setReadTimeout(timeout);
+		
 		httpCon.setDoOutput(true);
 		httpCon.setRequestMethod("PUT");
 		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
 		httpCon.setRequestProperty("DocID", "" + doc_id);
+		
 		if (rev_id != null) {
 			httpCon.setRequestProperty("RevID", "" + rev_id);
 		} else {

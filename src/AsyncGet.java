@@ -1,9 +1,12 @@
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 
@@ -24,7 +27,7 @@ public class AsyncGet implements Callable<Integer>{
 	}
 	
 	@Override
-	public Integer call() throws Exception {
+	public Integer call() throws IOException, ExecutionException, InterruptedException {
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 		httpCon.setDoOutput(true);
 		httpCon.setRequestMethod("GET");

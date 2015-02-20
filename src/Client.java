@@ -4,12 +4,14 @@ import java.io.IOException;
 import java.lang.Exception;
 import java.io.File;
 import java.lang.Math;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.HttpURLConnection;
 import java.nio.channels.AsynchronousFileChannel;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -42,6 +44,7 @@ class Client {
 	}
 	
 	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {
+		// TODO: get rid of unnecessary parameters
 		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
 				Paths.get("out_file.png"), StandardOpenOption.READ,
 		        StandardOpenOption.WRITE, StandardOpenOption.CREATE);
@@ -72,36 +75,70 @@ class Client {
 		System.out.println("Download finished!");
 	}
 	
-	public JSONObject sendChunkedFile(String filename, String doc_id, String rev_id) throws Exception {
+	private Future<String>[] sendListedChunks(String filename, Integer[] chunks, String doc_id, URL url) throws IOException {
 		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
 				Paths.get(filename), StandardOpenOption.READ,
 		        StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-		
-		File f = new File(filename);
-		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
-		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
-		
-		Future<String>[] responses = new Future[chunk_num];
-		for (int current_chunk = 0; current_chunk < chunk_num; current_chunk++){
+		System.out.println("Processing: " + chunks.length);
+		Future<String>[] responses = new Future[chunks.length];
+		int j = 0;
+		for (int current_chunk : chunks){
 			int start = current_chunk*CH_SIZE;
 			int end = (current_chunk+1)*CH_SIZE;
-			responses[current_chunk] = executor.submit(new AsyncPost(fileChannel, url, doc_id, null, start, end));
+			responses[j] = executor.submit(new AsyncPut(fileChannel, url, doc_id, null, start, end));
+			j++;
 		}
 		
 		// Wait for completion of all tasks
 		boolean done = true;
-		for (int i = 0; i < chunk_num; i++) {
+		for (int i = 0; i < chunks.length; i++) {
 			//System.out.println(responses[i].isDone());
 			done = done && responses[i].isDone();
-			if ((i + 1 == chunk_num) && !done){
+			if ((i + 1 == chunks.length) && !done){
 				i = -1;
 				done = true;
 			}
 		}
 		
+		return responses;
+	}
+	
+	public JSONObject sendChunkedFile(String filename, String doc_id, String rev_id) throws Exception {
+
+		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
+		
+		File f = new File(filename);
+		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
+		
+		ArrayList<Integer> al = new ArrayList();
+		for (int i = 0; i < chunk_num; i++) al.add(i);
+		
+		while (al.size() != 0) {
+			Future<String>[] responses = this.sendListedChunks(filename, al.toArray(new Integer[al.size()]) , doc_id, url);
+			al.clear();
+			for (int i = 0; i < responses.length; i++) {
+				try {
+					responses[i].get();
+				} catch (ExecutionException e) {
+					al.add(i);
+				}
+			}
+		}
+		
 		// Tell server to send the file.
-		Future<String> response = executor.submit(new AsyncPost(null, url, doc_id, rev_id, 0, 0));
-		JSONObject jo = new JSONObject(response.get());
+		boolean retry = true;
+		Future<String> response = executor.submit(new AsyncPut(null, url, doc_id, rev_id, 0, 0));
+		String output = "";
+		while (retry) {
+			try {
+				output = response.get();
+				retry = false;
+			} catch (ExecutionException e) {
+				// Do nothing, just retry
+				retry = true;
+			}
+		}
+		JSONObject jo = new JSONObject(output);
 
 		System.out.println("Upload finished!");
 		return jo;
