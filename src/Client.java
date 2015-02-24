@@ -43,36 +43,58 @@ class Client {
 		this.executor = Executors.newFixedThreadPool(4); 
 	}
 	
-	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {
-		// TODO: get rid of unnecessary parameters
-		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
-				Paths.get("out_file.png"), StandardOpenOption.READ,
-		        StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-		
+	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {		
 		int flength = this.getFileLength(doc_id, doc_rev);
 		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE); // TODO: safe cast from long
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		System.out.println("Chunks to receive: " + chunk_num);
+
+		ArrayList<Integer> al = new ArrayList<Integer>();
+		for (int i = 0; i < chunk_num; i++) al.add(i);
+
+		while (al.size() != 0) {
+			Future<Integer>[] responses = this.receiveListedChunks("out_file.png", al.toArray(new Integer[al.size()]) , doc_id, url);
+			al.clear();
+			for (int i = 0; i < responses.length; i++) {
+				try {
+					responses[i].get();
+				} catch (ExecutionException e) {
+					al.add(i);
+				}
+			}
+		}
+		System.out.println("Download finished!");
+	}
+	
+	private Future<Integer>[] receiveListedChunks(String filename, Integer[] chunks, String doc_id, URL url) throws IOException {
+		// TODO: get rid of unnecessary parameters
+		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
+				Paths.get(filename), StandardOpenOption.READ,
+				StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+
+		System.out.println("Processing (in): " + chunks.length);
+		Future<Integer>[] responses = new Future[chunks.length];
 		
-		Future<Integer>[] responses = new Future[chunk_num];
-		for (int current_chunk = 0; current_chunk < chunk_num; current_chunk++){
+		int j = 0;
+		for (int current_chunk : chunks){
 			int start = current_chunk*CH_SIZE;
 			int end = (current_chunk+1)*CH_SIZE;
-			if (end > flength) end = flength;
-			responses[current_chunk] = executor.submit(new AsyncGet(url, doc_id, start, end, fileChannel));
+			responses[j] = executor.submit(new AsyncGet(url, doc_id, start, end, fileChannel));
+			j++;
 		}
-		
+
 		// Wait for completion of all tasks
 		boolean done = true;
-		for (int i = 0; i < chunk_num; i++) {
-//			System.out.println(responses[i].isDone());
+		for (int i = 0; i < chunks.length; i++) {
+			//System.out.println(responses[i].isDone());
 			done = done && responses[i].isDone();
-			if ((i + 1 == chunk_num) && !done){
+			if ((i + 1 == chunks.length) && !done){
 				i = -1;
 				done = true;
 			}
 		}
-		System.out.println("Download finished!");
+		
+		return responses;
 	}
 	
 	private Future<String>[] sendListedChunks(String filename, Integer[] chunks, String doc_id, URL url) throws IOException {
@@ -110,7 +132,7 @@ class Client {
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
 		
-		ArrayList<Integer> al = new ArrayList();
+		ArrayList<Integer> al = new ArrayList<Integer>();
 		for (int i = 0; i < chunk_num; i++) al.add(i);
 		
 		while (al.size() != 0) {

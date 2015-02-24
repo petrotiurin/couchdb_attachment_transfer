@@ -41,7 +41,7 @@ public class AsyncPut implements Callable<String>{
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 		
 		// TIMEOUT
-		int timeout = 3000;
+		int timeout = 500;
 		httpCon.setConnectTimeout(timeout);
 		httpCon.setReadTimeout(timeout);
 		
