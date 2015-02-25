@@ -47,14 +47,14 @@ public class AsyncGet implements Callable<Integer>{
 		httpCon.setRequestProperty("DocId", "" + doc_id);
 		InputStream response = httpCon.getInputStream();
 		byte [] buffer = new byte[16 + end-start];
+		byte [] new_buffer = new byte[end-start];
 		byte [] md5 = new byte[16];
-		response.read(buffer);
+		int read = response.read(buffer);
 		System.arraycopy(buffer, end - start, md5, 0, 16);
+		System.arraycopy(buffer, 0, new_buffer, 0, end-start);
 		MessageDigest md = MessageDigest.getInstance("MD5");
-		System.out.println(bytesToHex(md5));
-		System.out.println(bytesToHex(md.digest(buffer)));
-		if (Arrays.equals(md.digest(buffer), md5)) {
-			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(buffer,0, end - start), start);
+		if (Arrays.equals(md.digest(new_buffer), md5)) {
+			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(new_buffer,0, end - start), start);
 			response.close();
 			return result.get();
 		} else {
