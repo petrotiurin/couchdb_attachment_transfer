@@ -57,7 +57,10 @@ class Client {
 			al.clear();
 			for (int i = 0; i < responses.length; i++) {
 				try {
-					responses[i].get();
+					if (responses[i].get() == 0){
+						al.add(i);
+						System.out.println("checksum mismatch");
+					}
 				} catch (ExecutionException e) {
 					al.add(i);
 				}
