@@ -1,7 +1,6 @@
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.ProtocolException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -45,21 +44,26 @@ public class AsyncGet implements Callable<Integer>{
 		httpCon.setRequestProperty("Start", "" + start);
 		httpCon.setRequestProperty("End", "" + end);
 		httpCon.setRequestProperty("DocId", "" + doc_id);
+		
 		InputStream response = httpCon.getInputStream();
-		byte [] buffer = new byte[16 + end-start];
-		byte [] new_buffer = new byte[end-start];
-		byte [] md5 = new byte[16];
-		int read = response.read(buffer);
-		System.arraycopy(buffer, end - start, md5, 0, 16);
-		System.arraycopy(buffer, 0, new_buffer, 0, end-start);
-		MessageDigest md = MessageDigest.getInstance("MD5");
-		if (Arrays.equals(md.digest(new_buffer), md5)) {
-			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(new_buffer,0, end - start), start);
+		byte [] buffer = new byte[end-start];
+//		byte [] file_chunk = new byte[end-start];
+//		byte [] md5 = new byte[32];
+		response.read(buffer);
+//		System.arraycopy(buffer, end - start, md5, 0, 32);
+//		System.arraycopy(buffer, 0, file_chunk, 0, end-start);
+//		
+//		MessageDigest md = MessageDigest.getInstance("MD5");
+//		if (Arrays.equals(bytesToHex(md.digest(file_chunk)).getBytes(), md5)) {
+			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(buffer), start);
 			response.close();
-			return result.get();
-		} else {
-			return 0;
-		}
+			int resp = result.get();
+			return resp;
+//		} else {
+//			System.out.println("checksum mismatch");
+//			// Return failure
+//			return 0;
+//		}
 	}
 	
 	public static String bytesToHex(byte[] bytes) {

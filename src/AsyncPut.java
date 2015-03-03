@@ -37,39 +37,54 @@ public class AsyncPut implements Callable<String>{
 	}
 	
 	@Override
-	public String call() throws IOException, InterruptedException, ExecutionException, SocketTimeoutException, NoSuchAlgorithmException {
-		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-		
-		// TIMEOUT
-		int timeout = 500;
-		httpCon.setConnectTimeout(timeout);
-		httpCon.setReadTimeout(timeout);
-		
-		httpCon.setDoOutput(true);
-		httpCon.setRequestMethod("PUT");
-		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-		httpCon.setRequestProperty("DocID", "" + doc_id);
-		
-		if (rev_id != null) {
-			httpCon.setRequestProperty("RevID", "" + rev_id);
-		} else {
-			httpCon.setRequestProperty("Start", "" + start);
-			httpCon.setRequestProperty("End", "" + end);
-			byte [] buffer = new byte[end-start];
-			// TODO: might be a better way to do this.
-			Future<Integer> result = fileChannel.read(ByteBuffer.wrap(buffer), start);
-			// Wait for it to finish
-			result.get();
-			MessageDigest md = MessageDigest.getInstance("MD5");
-			httpCon.setRequestProperty("MD5", bytesToHex(md.digest(buffer)));
-			ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
-			out.write(buffer);
-			out.close();
+	public String call() throws IOException, InterruptedException, ExecutionException, NoSuchAlgorithmException {
+		try {
+			HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+
+			httpCon.setDoOutput(true);
+			httpCon.setRequestMethod("PUT");
+			httpCon.setRequestProperty("Content-Type", "application/octet-stream");
+			httpCon.setRequestProperty("DocID", "" + doc_id);
+
+			if (rev_id != null) {
+				// TIMEOUT
+				int timeout = 1000;
+				httpCon.setConnectTimeout(timeout);
+				httpCon.setReadTimeout(timeout);
+
+				httpCon.setRequestProperty("RevID", "" + rev_id);
+
+				System.out.println("Sending to server.");
+			} else {		
+				// TIMEOUT
+				int timeout = 500;
+				httpCon.setConnectTimeout(timeout);
+				httpCon.setReadTimeout(timeout);
+
+				httpCon.setRequestProperty("Start", "" + start);
+				httpCon.setRequestProperty("End", "" + end);
+				byte [] buffer = new byte[end-start];
+				// TODO: might be a better way to do this.
+				Future<Integer> result = fileChannel.read(ByteBuffer.wrap(buffer), start);
+				// Wait for it to finish
+				result.get();
+				MessageDigest md = MessageDigest.getInstance("MD5");
+				httpCon.setRequestProperty("MD5", bytesToHex(md.digest(buffer)));
+				ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
+				out.write(buffer);
+				out.close();
+			}
+			InputStream response = httpCon.getInputStream();
+			if (rev_id != null) System.out.println("Got the input stream");
+			String resp_str = convertStreamToString(response);
+			if (rev_id != null) System.out.println("Got the string");
+			response.close();
+			return resp_str;
+		} catch (SocketTimeoutException e) {
+//			throw new ExecutionException("Socket timeout");
+//			System.out.println("Timeout exception");
+			return "Not received.";
 		}
-		InputStream response = httpCon.getInputStream();
-		String resp_str = convertStreamToString(response);
-		response.close();
-		return resp_str;
 	}
 	
 	// Read server response into string
