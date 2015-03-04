@@ -46,24 +46,25 @@ public class AsyncGet implements Callable<Integer>{
 		httpCon.setRequestProperty("DocId", "" + doc_id);
 		
 		InputStream response = httpCon.getInputStream();
-		byte [] buffer = new byte[end-start];
-//		byte [] file_chunk = new byte[end-start];
-//		byte [] md5 = new byte[32];
+		byte [] buffer = new byte[32 + end-start];
+		byte [] file_chunk = new byte[end-start];
+		byte [] md5 = new byte[32];
 		response.read(buffer);
-//		System.arraycopy(buffer, end - start, md5, 0, 32);
-//		System.arraycopy(buffer, 0, file_chunk, 0, end-start);
-//		
-//		MessageDigest md = MessageDigest.getInstance("MD5");
-//		if (Arrays.equals(bytesToHex(md.digest(file_chunk)).getBytes(), md5)) {
-			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(buffer), start);
+		System.arraycopy(buffer, end - start, md5, 0, 32);
+		System.arraycopy(buffer, 0, file_chunk, 0, end-start);
+
+		MessageDigest md = MessageDigest.getInstance("MD5");
+		if (Arrays.equals(bytesToHex(md.digest(file_chunk)).getBytes(), md5)) {
+			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(file_chunk), start);
 			response.close();
 			int resp = result.get();
+			System.out.println("Wrote " + resp);
 			return resp;
-//		} else {
-//			System.out.println("checksum mismatch");
-//			// Return failure
-//			return 0;
-//		}
+		} else {
+			System.out.println("checksum mismatch");
+			// Return failure
+			return 0;
+		}
 	}
 	
 	public static String bytesToHex(byte[] bytes) {

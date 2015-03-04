@@ -56,7 +56,7 @@ class Client {
 				// Just retry.
 			}
 		}
-		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE); // TODO: safe cast from long
+		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE);
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		System.out.println("Chunks to receive: " + chunk_num);
 
