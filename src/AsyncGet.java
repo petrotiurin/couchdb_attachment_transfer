@@ -17,11 +17,11 @@ public class AsyncGet implements Callable<Integer>{
 	
 	private URL url;
 	private String doc_id;
-	private int start;
-	private int end;
+	private long start;
+	private long end;
 	private AsynchronousFileChannel fileChannel;
 
-	public AsyncGet(URL url, String doc_id, int start, int end, AsynchronousFileChannel afc) {
+	public AsyncGet(URL url, String doc_id, long start, long end, AsynchronousFileChannel afc) {
 		this.url = url;
 		this.doc_id = doc_id;
 		this.start = start;
@@ -45,20 +45,24 @@ public class AsyncGet implements Callable<Integer>{
 		httpCon.setRequestProperty("End", "" + end);
 		httpCon.setRequestProperty("DocId", "" + doc_id);
 		
+		int chunk_size = (int) (end - start);
 		InputStream response = httpCon.getInputStream();
-		byte [] buffer = new byte[32 + end-start];
-		byte [] file_chunk = new byte[end-start];
+		byte [] buffer = new byte[32 + chunk_size];
+		byte [] file_chunk = new byte[chunk_size];
 		byte [] md5 = new byte[32];
 		response.read(buffer);
-		System.arraycopy(buffer, end - start, md5, 0, 32);
-		System.arraycopy(buffer, 0, file_chunk, 0, end-start);
+		System.arraycopy(buffer, chunk_size, md5, 0, 32);
+		System.arraycopy(buffer, 0, file_chunk, 0, chunk_size);
 
 		MessageDigest md = MessageDigest.getInstance("MD5");
 		if (Arrays.equals(bytesToHex(md.digest(file_chunk)).getBytes(), md5)) {
+			
+			System.out.println(bytesToHex(Arrays.copyOfRange(file_chunk, 100, 120)));
+			
 			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(file_chunk), start);
 			response.close();
 			int resp = result.get();
-			System.out.println("Wrote " + resp);
+//			System.out.println("Wrote " + resp);
 			return resp;
 		} else {
 			System.out.println("checksum mismatch");

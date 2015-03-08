@@ -9,31 +9,37 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.FileChannel;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import org.json.JSONObject;
 
+import java.nio.channels.AsynchronousFileChannel;
 
 public class AsyncPut implements Callable<String>{
 
 	private URL url;
 	private String doc_id;
 	private String rev_id;
-	private int start;
-	private int end;
+	private long start;
+	private long end;
 	private AsynchronousFileChannel fileChannel;
 	
-	public AsyncPut(AsynchronousFileChannel fileChannel, URL url, String doc_id, String rev_id, int start, int end) {
+	public AsyncPut(AsynchronousFileChannel fileChannel, URL url, String doc_id, String rev_id, long start, long end) throws IOException {
 		this.url = url;
 		this.doc_id = doc_id;
 		this.start = start;
 		this.end = end;	
 		this.rev_id = rev_id;
-		this.fileChannel = fileChannel;
+		this.fileChannel = AsynchronousFileChannel.open(
+				Paths.get("file1.png"), StandardOpenOption.READ);;
 	}
 	
 	@Override
@@ -57,17 +63,22 @@ public class AsyncPut implements Callable<String>{
 				System.out.println("Sending to server.");
 			} else {		
 				// TIMEOUT
-				int timeout = 500;
+				int timeout = 1000;
 				httpCon.setConnectTimeout(timeout);
 				httpCon.setReadTimeout(timeout);
-
+				// Fixed length streaming
+//				httpCon.setFixedLengthStreamingMode(end-start);
 				httpCon.setRequestProperty("Start", "" + start);
+				if (end > fileChannel.size()) end = fileChannel.size();
 				httpCon.setRequestProperty("End", "" + end);
-				byte [] buffer = new byte[end-start];
+				byte [] buffer = new byte[(int) (end-start)];
 				// TODO: might be a better way to do this.
 				Future<Integer> result = fileChannel.read(ByteBuffer.wrap(buffer), start);
 				// Wait for it to finish
-				result.get();
+				int num_read = result.get();
+				if (num_read != end-start) return "Not received.";
+//				System.out.println(bytesToHex(Arrays.copyOfRange(buffer, 100, 120)));
+
 				MessageDigest md = MessageDigest.getInstance("MD5");
 				httpCon.setRequestProperty("MD5", bytesToHex(md.digest(buffer)));
 				ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
@@ -79,10 +90,9 @@ public class AsyncPut implements Callable<String>{
 			String resp_str = convertStreamToString(response);
 			if (rev_id != null) System.out.println("Got the string");
 			response.close();
+			fileChannel.close();
 			return resp_str;
 		} catch (SocketTimeoutException e) {
-//			throw new ExecutionException("Socket timeout");
-//			System.out.println("Timeout exception");
 			return "Not received.";
 		}
 	}
