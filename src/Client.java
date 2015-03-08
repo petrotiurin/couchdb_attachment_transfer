@@ -73,7 +73,6 @@ class Client {
 			for (int i = 0; i < responses.length; i++) {
 				try {
 					int resp = responses[i].get();
-//					System.out.println("Resp " + i + " returned: " + resp);
 					if (resp == 0){
 						al.add(i);
 						System.out.println("checksum mismatch");
@@ -117,7 +116,7 @@ class Client {
 	private Future<String>[] sendListedChunks(String filename, Integer[] chunks, String doc_id, URL url) throws IOException {
 //		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
 //				Paths.get(filename), StandardOpenOption.READ);
-//		System.out.println("Processing: " + chunks.length);
+		System.out.println("Processing: " + chunks.length);
 		Future<String>[] responses = new Future[chunks.length];
 		int j = 0;
 		for (int current_chunk : chunks) {
@@ -145,6 +144,16 @@ class Client {
 
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		
+		boolean retry = true;
+		while (retry){
+			try {
+				int resp = this.startFileTransfer(url, doc_id);
+				if (resp == 200) retry = false;
+			} catch (SocketTimeoutException e) {
+				//just repeat
+			}
+		}
+		
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
 		
@@ -155,21 +164,16 @@ class Client {
 		while (al.size() != 0) {
 			Future<String>[] responses = this.sendListedChunks(filename, al.toArray(new Integer[al.size()]) , doc_id, url);
 			ArrayList<Integer> al_new = new ArrayList<Integer>();
-//			al.clear();
 			for (int i = 0; i < responses.length; i++) {
 				try {
 					// wait for completion
 					String out = responses[i].get();
-//					System.out.println(out);
 					// if not successful - retry
-//					if (!out.equals("Chunk received " + al.get(i)*CH_SIZE)){
-					if (!out.equals("Chunk received")){
-//						al.add(i);
+					if (!out.equals("Chunk received " + al.get(i)*CH_SIZE)){
 						al_new.add(al.get(i));
 					}
 				} catch (ExecutionException e) {
 					System.out.println("Execution exception");
-//					al.add(i);
 					al_new.add(al.get(i));
 				}
 			}
@@ -178,25 +182,25 @@ class Client {
 		}
 		
 
-//		System.out.println("Chunks sent. Asking server to update the doc.");
+		System.out.println("Chunks sent. Asking server to update the doc.");
 		// Tell server to send the file.
-		boolean retry = true;
+		retry = true;
 		String output = "";
 		JSONObject jo = null;
-//		while (retry) {
-//			try {
-//				Future<String> response = executor.submit(new AsyncPut(null, url, doc_id, rev_id, 0, 0));
-//				output = response.get();
-//				if (!output.equals("Not received.")) retry = false;
-//				jo = new JSONObject(output);
-//			} catch (ExecutionException e) {
-//				// Do nothing, just retry
-//			} catch (JSONException e) {
-//				System.out.println("JSON exception!");
-//			}
-//		}
+		while (retry) {
+			try {
+				Future<String> response = executor.submit(new AsyncPut(null, url, doc_id, rev_id, 0, 0));
+				output = response.get();
+				if (!output.equals("Not received.")) retry = false;
+				jo = new JSONObject(output);
+			} catch (ExecutionException e) {
+				// Do nothing, just retry
+			} catch (JSONException e) {
+				System.out.println("JSON exception!");
+			}
+		}
 
-//		System.out.println("Upload finished!");
+		System.out.println("Upload finished!");
 		return jo;
 	}
 	
@@ -251,6 +255,19 @@ class Client {
 			e.printStackTrace();
 			return null;
 		}
+	}
+	
+	private int startFileTransfer(URL url, String doc_id) throws IOException, SocketTimeoutException {
+//		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
+		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+		int timeout = 500;
+		httpCon.setConnectTimeout(timeout);
+		httpCon.setReadTimeout(timeout);
+		httpCon.setDoOutput(true);
+		httpCon.setRequestMethod("PUT");
+		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
+		httpCon.setRequestProperty("DocId", "" + doc_id);
+		return httpCon.getResponseCode();
 	}
 	
 	private long getFileLength(String doc_id, String rev_id) throws IOException, SocketTimeoutException {

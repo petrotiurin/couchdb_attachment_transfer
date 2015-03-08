@@ -53,15 +53,13 @@ public class AsyncPut implements Callable<String>{
 			httpCon.setRequestProperty("DocID", "" + doc_id);
 
 			if (rev_id != null) {
-				// TIMEOUT
+				// Tell server to send file to the database.
 				int timeout = 1000;
 				httpCon.setConnectTimeout(timeout);
 				httpCon.setReadTimeout(timeout);
-
 				httpCon.setRequestProperty("RevID", "" + rev_id);
-
 				System.out.println("Sending to server.");
-			} else {		
+			} else {
 				// TIMEOUT
 				int timeout = 1000;
 				httpCon.setConnectTimeout(timeout);
