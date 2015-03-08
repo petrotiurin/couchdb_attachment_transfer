@@ -34,7 +34,7 @@ public class AsyncGet implements Callable<Integer>{
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 		
 		// TIMEOUT
-		int timeout = 500;
+		int timeout = 1000;
 		httpCon.setConnectTimeout(timeout);
 		httpCon.setReadTimeout(timeout);
 		

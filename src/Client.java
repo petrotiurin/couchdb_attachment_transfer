@@ -69,18 +69,20 @@ class Client {
 		
 		while (al.size() != 0) {
 			Future<Integer>[] responses = this.receiveListedChunks(fileChannel, al.toArray(new Integer[al.size()]) , doc_id, url, flength);
-			al.clear();
+			ArrayList<Integer> al_new = new ArrayList<Integer>();
 			for (int i = 0; i < responses.length; i++) {
 				try {
 					int resp = responses[i].get();
 					if (resp == 0){
-						al.add(i);
+						al_new.add(al.get(i));
 						System.out.println("checksum mismatch");
 					}
 				} catch (ExecutionException e) {
-					al.add(i);
+					al_new.add(al.get(i));
 				}
 			}
+			al.clear(); // might be unnecessary
+			al = al_new;
 		}
 		fileChannel.close();
 		System.out.println("Download finished!");
