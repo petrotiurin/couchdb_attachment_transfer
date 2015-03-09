@@ -5,6 +5,8 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
@@ -21,12 +23,12 @@ public class AsyncGet implements Callable<Integer>{
 	private long end;
 	private AsynchronousFileChannel fileChannel;
 
-	public AsyncGet(URL url, String doc_id, long start, long end, AsynchronousFileChannel afc) {
+	public AsyncGet(URL url, AsynchronousFileChannel fc, String doc_id, long start, long end) throws IOException {
 		this.url = url;
 		this.doc_id = doc_id;
 		this.start = start;
 		this.end = end;
-		this.fileChannel = afc;
+		this.fileChannel = fc;
 	}
 	
 	@Override
@@ -51,21 +53,16 @@ public class AsyncGet implements Callable<Integer>{
 		byte [] file_chunk = new byte[chunk_size];
 		byte [] md5 = new byte[32];
 		response.read(buffer);
+		response.close();
 		System.arraycopy(buffer, chunk_size, md5, 0, 32);
 		System.arraycopy(buffer, 0, file_chunk, 0, chunk_size);
 
 		MessageDigest md = MessageDigest.getInstance("MD5");
 		if (Arrays.equals(bytesToHex(md.digest(file_chunk)).getBytes(), md5)) {
-			
-			System.out.println(bytesToHex(Arrays.copyOfRange(file_chunk, 100, 120)));
-			
 			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(file_chunk), start);
-			response.close();
 			int resp = result.get();
-//			System.out.println("Wrote " + resp);
 			return resp;
 		} else {
-			System.out.println("checksum mismatch");
 			// Return failure
 			return 0;
 		}

@@ -1,5 +1,3 @@
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.Exception;
 import java.io.File;
@@ -17,7 +15,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
@@ -30,10 +27,10 @@ class Client {
 	// Chunk size
 	private static int CH_SIZE = 2048;
 	
-	private static String PATH = "ChunkServer/MainServlet"; //potato1
+	private static String PATH = "ChunkServer/MainServlet";
 	private static String SERVER = "127.0.0.1";
-	private static String PORT = "8080"; //5984
-
+	private static String PORT = "8080"; 
+	
 	private static String DB_NAME = "potato1";
 	private static String DB_SERVER = "127.0.0.1";
 	private static String DB_PORT = "5984";
@@ -41,70 +38,43 @@ class Client {
 	private ExecutorService executor;
 	
 	public Client(){
+		// Set up number of available threads
 		this.executor = Executors.newFixedThreadPool(4); 
 	}
 	
-	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {		
-		boolean retry = true;
-		// Get the file length
-		long flength = 0;
-		while (retry) {
-			try {
-				flength = this.getFileLength(doc_id, doc_rev);
-				System.out.println("flength: " + flength);
-				retry = false;
-			} catch (SocketTimeoutException e) {
-				// Just retry.
-			}
-		}
-		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE);
+	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
+		
+		long flength = this.getFileLength(url, doc_id, doc_rev);
+		System.out.println("flength: " + flength);
+	
+		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE);
 		System.out.println("Chunks to receive: " + chunk_num);
 
 		ArrayList<Integer> al = new ArrayList<Integer>();
 		for (int i = 0; i < chunk_num; i++) al.add(i);
-
-		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
-				Paths.get("out_file.png"), StandardOpenOption.WRITE, StandardOpenOption.CREATE);
 		
-		while (al.size() != 0) {
-			Future<Integer>[] responses = this.receiveListedChunks(fileChannel, al.toArray(new Integer[al.size()]) , doc_id, url, flength);
-			ArrayList<Integer> al_new = new ArrayList<Integer>();
-			for (int i = 0; i < responses.length; i++) {
-				try {
-					int resp = responses[i].get();
-					if (resp == 0){
-						al_new.add(al.get(i));
-						System.out.println("checksum mismatch");
-					}
-				} catch (ExecutionException e) {
-					al_new.add(al.get(i));
-				}
-			}
-			al.clear(); // might be unnecessary
-			al = al_new;
-		}
-		fileChannel.close();
+		this.chunkedDownload(url, al, doc_id, flength);
+		
 		System.out.println("Download finished!");
 	}
 	
-	private Future<Integer>[] receiveListedChunks(AsynchronousFileChannel fileChannel, Integer[] chunks, String doc_id, URL url, long flength) throws IOException {
+	private Future<Integer>[] receiveListedChunks(AsynchronousFileChannel fc, Integer[] chunks, String doc_id, URL url, long flength) throws IOException {
 		System.out.println("Processing (in): " + chunks.length);
-		Future<Integer>[] responses = new Future[chunks.length];
 		
+		Future<Integer>[] responses = new Future[chunks.length];
 		int j = 0;
 		for (int current_chunk : chunks){
 			long start = current_chunk*CH_SIZE;
 			long end = (current_chunk+1)*CH_SIZE;
 			if (end > flength) end = flength;
-			responses[j] = executor.submit(new AsyncGet(url, doc_id, start, end, fileChannel));
+			responses[j] = executor.submit(new AsyncGet(url, fc, doc_id, start, end));
 			j++;
 		}
 
 		// Wait for completion of all tasks
 		boolean done = true;
 		for (int i = 0; i < chunks.length; i++) {
-			//System.out.println(responses[i].isDone());
 			done = done && responses[i].isDone();
 			if ((i + 1 == chunks.length) && !done){
 				i = -1;
@@ -146,15 +116,7 @@ class Client {
 
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		
-		boolean retry = true;
-		while (retry){
-			try {
-				int resp = this.startFileTransfer(url, doc_id);
-				if (resp == 200) retry = false;
-			} catch (SocketTimeoutException e) {
-				//just repeat
-			}
-		}
+		this.startFileTransfer(url, doc_id);
 		
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
@@ -162,6 +124,67 @@ class Client {
 		ArrayList<Integer> al = new ArrayList<Integer>();
 		for (int i = 0; i < chunk_num; i++) al.add(i);
 		
+		this.chunkedUpload(url, al, filename, doc_id);
+
+		System.out.println("Chunks sent. Asking server to update the doc.");
+		// Tell server to send the file.
+		JSONObject jo = this.finaliseUpload(url,doc_id, rev_id);
+		System.out.println("Upload finished!");
+		return jo;
+	}
+	
+	// Creates a doc with random id
+	public JSONObject createNewDoc() {
+		try {
+			String doc_id = "a" + UUID.randomUUID().toString();
+			URL url = new URL("http://" + DB_SERVER + ":" + DB_PORT + "/"
+							  + DB_NAME + "/" + doc_id);
+			HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+			httpCon.setDoOutput(true);
+			httpCon.setRequestMethod("PUT");
+			httpCon.setRequestProperty("Content-Type", "application/json");
+			OutputStreamWriter out = new OutputStreamWriter(httpCon.getOutputStream());
+			out.write("{}");
+			out.close();
+			InputStream response = httpCon.getInputStream();
+			String resp_string = convertStreamToString(response);
+			response.close();
+			JSONObject jo = new JSONObject(resp_string);
+			System.out.println(jo.getString("id"));
+			return jo;
+		} catch (IOException e) {
+			e.printStackTrace();
+			return null;
+		}
+	}
+	
+	// Download file chunks from the server until all have been received
+	private void chunkedDownload(URL url, ArrayList<Integer> al, String doc_id, long flength) throws IOException {
+		AsynchronousFileChannel fc = AsynchronousFileChannel.open(Paths.get("out_file.png"),
+				StandardOpenOption.WRITE,
+				StandardOpenOption.CREATE);
+
+		while (al.size() != 0) {
+			Future<Integer>[] responses = this.receiveListedChunks(fc, al.toArray(new Integer[al.size()]), doc_id, url, flength);
+			ArrayList<Integer> al_new = new ArrayList<Integer>();
+			for (int i = 0; i < responses.length; i++) {
+				try {
+					int resp = responses[i].get();
+					if (resp == 0){
+						al_new.add(al.get(i));
+						System.out.println("Checksum mismatch!");
+					}
+				} catch (ExecutionException|InterruptedException e) {
+					al_new.add(al.get(i));
+				}
+			}
+			al.clear(); // might be unnecessary
+			al = al_new;
+		}
+	}
+	
+	// Send file chunks until all have been sent and acknowledged by server
+	private void chunkedUpload(URL url, ArrayList<Integer> al, String filename, String doc_id) throws IOException, InterruptedException {
 		// TODO: add new threads on the go. (use .isDone())
 		while (al.size() != 0) {
 			Future<String>[] responses = this.sendListedChunks(filename, al.toArray(new Integer[al.size()]) , doc_id, url);
@@ -170,7 +193,7 @@ class Client {
 				try {
 					// wait for completion
 					String out = responses[i].get();
-					// if not successful - retry
+					// Check if the right chunk received
 					if (!out.equals("Chunk received " + al.get(i)*CH_SIZE)){
 						al_new.add(al.get(i));
 					}
@@ -182,110 +205,73 @@ class Client {
 			al.clear(); // might be unnecessary
 			al = al_new;
 		}
-		
-
-		System.out.println("Chunks sent. Asking server to update the doc.");
-		// Tell server to send the file.
-		retry = true;
-		String output = "";
-		JSONObject jo = null;
-		while (retry) {
+	}
+	
+	// Tell server to send file to the database
+	private JSONObject finaliseUpload(URL url, String doc_id, String rev_id) throws IOException {
+		while (true) {
 			try {
-				Future<String> response = executor.submit(new AsyncPut(null, url, doc_id, rev_id, 0, 0));
-				output = response.get();
-				if (!output.equals("Not received.")) retry = false;
-				jo = new JSONObject(output);
-			} catch (ExecutionException e) {
-				// Do nothing, just retry
-			} catch (JSONException e) {
-				System.out.println("JSON exception!");
+				int timeout = 1000;
+				HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+				httpCon.setDoOutput(true);
+				httpCon.setRequestMethod("PUT");
+				httpCon.setRequestProperty("Content-Type", "application/octet-stream");
+				httpCon.setRequestProperty("DocID", "" + doc_id);
+				httpCon.setConnectTimeout(timeout);
+				httpCon.setReadTimeout(timeout);
+				httpCon.setRequestProperty("RevID", "" + rev_id);
+				InputStream response = httpCon.getInputStream();
+				String resp_str = convertStreamToString(response);
+				response.close();
+				return new JSONObject(resp_str);
+			} catch (SocketTimeoutException|JSONException e) {
+				// Just retry
 			}
 		}
-
-		System.out.println("Upload finished!");
-		return jo;
 	}
 	
-	// Sends a byte array as an individual attachment
-	public JSONObject sendChunk(byte[] chunk, String docId, String revId, int start, int end) throws Exception{
-		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
-		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-		httpCon.setDoOutput(true);
-		httpCon.setRequestMethod("PUT");
-		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-		httpCon.setRequestProperty("DocID", "" + docId);
-		httpCon.setRequestProperty("Start", "" + start);
-		httpCon.setRequestProperty("End", "" + end);
-		if (revId != null){
-			httpCon.setRequestProperty("RevID", "" + revId);
-		}
-		ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
-		out.write(chunk);
-		out.close();
-		InputStream response = httpCon.getInputStream();
-		String resp_str = convertStreamToString(response);
-		response.close();
-		if (!resp_str.equals("Chunk received")) {
-			return new JSONObject(resp_str);
-		} else {
-			return null;
-		}
-	}
-
-	// Creates a doc with random id
-	public JSONObject createNewDoc() {
-		try {
-			String doc_id = "a" + UUID.randomUUID().toString();
-			URL url = new URL("http://" + DB_SERVER + ":" + DB_PORT + "/"
-							  + DB_NAME + "/" + doc_id);
-			HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-			httpCon.setDoOutput(true);
-			httpCon.setRequestMethod("PUT");
-			httpCon.setRequestProperty("Content-Type", "application/json");
-			OutputStreamWriter out = new OutputStreamWriter(
-			    httpCon.getOutputStream());
-			out.write("{}");
-			out.close();
-			InputStream response = httpCon.getInputStream();
-			String resp_string = convertStreamToString(response);
-			response.close();
-			JSONObject jo = new JSONObject(resp_string); 
-//			System.out.println("Doc created: ");
-			System.out.println(jo.getString("id"));
-			return jo;
-		} catch (Exception e) {
-			e.printStackTrace();
-			return null;
+	// Initiate the file transfer with the server
+	private void startFileTransfer(URL url, String doc_id) throws IOException, SocketTimeoutException {
+		while (true){
+			try {
+				HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+				int timeout = 500;
+				httpCon.setConnectTimeout(timeout);
+				httpCon.setReadTimeout(timeout);
+				httpCon.setDoOutput(true);
+				httpCon.setRequestMethod("PUT");
+				httpCon.setRequestProperty("Content-Type", "application/octet-stream");
+				httpCon.setRequestProperty("DocId", "" + doc_id);
+				int resp = httpCon.getResponseCode();
+				if (resp == 200) return;
+			} catch (SocketTimeoutException e) {
+				// Just retry
+			}
 		}
 	}
 	
-	private int startFileTransfer(URL url, String doc_id) throws IOException, SocketTimeoutException {
-//		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
-		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-		int timeout = 500;
-		httpCon.setConnectTimeout(timeout);
-		httpCon.setReadTimeout(timeout);
-		httpCon.setDoOutput(true);
-		httpCon.setRequestMethod("PUT");
-		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-		httpCon.setRequestProperty("DocId", "" + doc_id);
-		return httpCon.getResponseCode();
-	}
-	
-	private long getFileLength(String doc_id, String rev_id) throws IOException, SocketTimeoutException {
-		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
-		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-		int timeout = 500;
-		httpCon.setConnectTimeout(timeout);
-		httpCon.setReadTimeout(timeout);
-		httpCon.setDoOutput(true);
-		httpCon.setRequestMethod("GET");
-		httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-		httpCon.setRequestProperty("DocId", "" + doc_id);
-		httpCon.setRequestProperty("RevId", "" + rev_id);
-		InputStream response = httpCon.getInputStream();
-		String length = convertStreamToString(response);
-		return Long.parseLong(length);
+	// Query the server for file length
+	private long getFileLength(URL url_2, String doc_id, String rev_id) throws IOException{
+		// Try until succeeded
+		while (true) {
+			try {
+				URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
+				HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+				int timeout = 500;
+				httpCon.setConnectTimeout(timeout);
+				httpCon.setReadTimeout(timeout);
+				httpCon.setDoOutput(true);
+				httpCon.setRequestMethod("GET");
+				httpCon.setRequestProperty("Content-Type", "application/octet-stream");
+				httpCon.setRequestProperty("DocId", "" + doc_id);
+				httpCon.setRequestProperty("RevId", "" + rev_id);
+				InputStream response = httpCon.getInputStream();
+				String length = convertStreamToString(response);
+				return Long.parseLong(length);
+			} catch (SocketTimeoutException e) {
+				// Just retry.
+			}
+		}
 	}
 	
 	// Read server response into string

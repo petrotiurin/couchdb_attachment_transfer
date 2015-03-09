@@ -52,41 +52,31 @@ public class AsyncPut implements Callable<String>{
 			httpCon.setRequestProperty("Content-Type", "application/octet-stream");
 			httpCon.setRequestProperty("DocID", "" + doc_id);
 
-			if (rev_id != null) {
-				// Tell server to send file to the database.
-				int timeout = 1000;
-				httpCon.setConnectTimeout(timeout);
-				httpCon.setReadTimeout(timeout);
-				httpCon.setRequestProperty("RevID", "" + rev_id);
-				System.out.println("Sending to server.");
-			} else {
-				// TIMEOUT
-				int timeout = 1000;
-				httpCon.setConnectTimeout(timeout);
-				httpCon.setReadTimeout(timeout);
-				// Fixed length streaming
-//				httpCon.setFixedLengthStreamingMode(end-start);
-				httpCon.setRequestProperty("Start", "" + start);
-				if (end > fileChannel.size()) end = fileChannel.size();
-				httpCon.setRequestProperty("End", "" + end);
-				byte [] buffer = new byte[(int) (end-start)];
-				// TODO: might be a better way to do this.
-				Future<Integer> result = fileChannel.read(ByteBuffer.wrap(buffer), start);
-				// Wait for it to finish
-				int num_read = result.get();
-				if (num_read != end-start) return "Not received.";
-//				System.out.println(bytesToHex(Arrays.copyOfRange(buffer, 100, 120)));
+			// TIMEOUT
+			int timeout = 1000;
+			httpCon.setConnectTimeout(timeout);
+			httpCon.setReadTimeout(timeout);
+			// Fixed length streaming
+			//				httpCon.setFixedLengthStreamingMode(end-start);
+			httpCon.setRequestProperty("Start", "" + start);
+			if (end > fileChannel.size()) end = fileChannel.size();
+			httpCon.setRequestProperty("End", "" + end);
+			byte [] buffer = new byte[(int) (end-start)];
+			// TODO: might be a better way to do this.
+			Future<Integer> result = fileChannel.read(ByteBuffer.wrap(buffer), start);
+			// Wait for it to finish
+			int num_read = result.get();
+			if (num_read != end-start) return "Not received.";
+			//				System.out.println(bytesToHex(Arrays.copyOfRange(buffer, 100, 120)));
 
-				MessageDigest md = MessageDigest.getInstance("MD5");
-				httpCon.setRequestProperty("MD5", bytesToHex(md.digest(buffer)));
-				ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
-				out.write(buffer);
-				out.close();
-			}
+			MessageDigest md = MessageDigest.getInstance("MD5");
+			httpCon.setRequestProperty("MD5", bytesToHex(md.digest(buffer)));
+			ByteArrayOutputStream out = (ByteArrayOutputStream) httpCon.getOutputStream();
+			out.write(buffer);
+			out.close();
+
 			InputStream response = httpCon.getInputStream();
-			if (rev_id != null) System.out.println("Got the input stream");
 			String resp_str = convertStreamToString(response);
-			if (rev_id != null) System.out.println("Got the string");
 			response.close();
 			fileChannel.close();
 			return resp_str;
