@@ -1,8 +1,6 @@
-import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URL;
@@ -15,6 +13,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+
+import org.apache.commons.io.IOUtils;
 
 public class AsyncPut implements Callable<String>{
 
@@ -63,26 +63,14 @@ public class AsyncPut implements Callable<String>{
 			out.close();
 
 			InputStream response = httpCon.getInputStream();
-			String resp_str = convertStreamToString(response);
+			String resp_str = IOUtils.toString(response);
+			resp_str = resp_str.trim();
 			response.close();
 			fileChannel.close();
 			return resp_str;
 		} catch (SocketTimeoutException e) {
 			return "Not received.";
 		}
-	}
-	
-	// Read server response into string
-	private static String convertStreamToString(InputStream in) throws IOException{
-	    InputStreamReader is = new InputStreamReader(in);
-		StringBuilder sb=new StringBuilder();
-		BufferedReader br = new BufferedReader(is);
-		String read = br.readLine();
-		while(read != null) {
-		    sb.append(read);
-		    read = br.readLine();
-		}
-		return sb.toString();
 	}
 	
 	public static String bytesToHex(byte[] bytes) {

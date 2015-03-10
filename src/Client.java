@@ -13,8 +13,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.io.OutputStreamWriter;
-import java.io.InputStreamReader;
-import java.io.BufferedReader;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -142,7 +140,8 @@ class Client {
 			out.write("{}");
 			out.close();
 			InputStream response = httpCon.getInputStream();
-			String resp_string = convertStreamToString(response);
+			String resp_string = IOUtils.toString(response);
+			resp_string = resp_string.trim();
 			response.close();
 			JSONObject jo = new JSONObject(resp_string);
 			System.out.println(jo.getString("id"));
@@ -212,7 +211,8 @@ class Client {
 				httpCon.setReadTimeout(timeout);
 				httpCon.setRequestProperty("RevID", "" + rev_id);
 				InputStream response = httpCon.getInputStream();
-				String resp_str = convertStreamToString(response);
+				String resp_str = IOUtils.toString(response);
+				resp_str = resp_str.trim();
 				response.close();
 				return new JSONObject(resp_str);
 			} catch (SocketTimeoutException|JSONException e) {
@@ -257,24 +257,12 @@ class Client {
 				httpCon.setRequestProperty("DocId", "" + doc_id);
 				httpCon.setRequestProperty("RevId", "" + rev_id);
 				InputStream response = httpCon.getInputStream();
-				String length = convertStreamToString(response);
+				String length = IOUtils.toString(response);
+				length = length.trim();
 				return Long.parseLong(length);
 			} catch (SocketTimeoutException e) {
 				// Just retry.
 			}
 		}
-	}
-	
-	// Read server response into string
-	private static String convertStreamToString(InputStream in) throws IOException{
-	    InputStreamReader is = new InputStreamReader(in);
-		StringBuilder sb=new StringBuilder();
-		BufferedReader br = new BufferedReader(is);
-		String read = br.readLine();
-		while(read != null) {
-		    sb.append(read);
-		    read =br.readLine();
-		}
-		return sb.toString();
 	}
 }
