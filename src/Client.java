@@ -5,9 +5,6 @@ import java.lang.Math;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.HttpURLConnection;
-import java.nio.channels.AsynchronousFileChannel;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.UUID;
@@ -54,12 +51,12 @@ class Client {
 		ArrayList<Integer> al = new ArrayList<Integer>();
 		for (int i = 0; i < chunk_num; i++) al.add(i);
 		
-		this.chunkedDownload(url, al, doc_id, flength);
+		this.chunkedDownload(url, "out_file.png", al, doc_id, flength);
 		
 		System.out.println("Download finished!");
 	}
 	
-	private Future<Integer>[] receiveListedChunks(AsynchronousFileChannel fc, Integer[] chunks, String doc_id, URL url, long flength) throws IOException {
+	private Future<Integer>[] receiveListedChunks(String filename, Integer[] chunks, String doc_id, URL url, long flength) throws IOException {
 		System.out.println("Processing (in): " + chunks.length);
 		
 		Future<Integer>[] responses = new Future[chunks.length];
@@ -68,7 +65,7 @@ class Client {
 			long start = current_chunk*CH_SIZE;
 			long end = (current_chunk+1)*CH_SIZE;
 			if (end > flength) end = flength;
-			responses[j] = executor.submit(new AsyncGet(url, fc, doc_id, start, end));
+			responses[j] = executor.submit(new AsyncGet(url, filename, doc_id, start, end));
 			j++;
 		}
 
@@ -86,15 +83,13 @@ class Client {
 	}
 	
 	private Future<String>[] sendListedChunks(String filename, Integer[] chunks, String doc_id, URL url) throws IOException {
-//		AsynchronousFileChannel fileChannel = AsynchronousFileChannel.open(
-//				Paths.get(filename), StandardOpenOption.READ);
 		System.out.println("Processing: " + chunks.length);
 		Future<String>[] responses = new Future[chunks.length];
 		int j = 0;
 		for (int current_chunk : chunks) {
 			int start = current_chunk*CH_SIZE;
 			int end = (current_chunk+1)*CH_SIZE;
-			responses[j] = executor.submit(new AsyncPut(null, url, doc_id, null, start, end));
+			responses[j] = executor.submit(new AsyncPut(filename, url, doc_id, start, end));
 			j++;
 		}
 		
@@ -159,13 +154,9 @@ class Client {
 	}
 	
 	// Download file chunks from the server until all have been received
-	private void chunkedDownload(URL url, ArrayList<Integer> al, String doc_id, long flength) throws IOException {
-		AsynchronousFileChannel fc = AsynchronousFileChannel.open(Paths.get("out_file.png"),
-				StandardOpenOption.WRITE,
-				StandardOpenOption.CREATE);
-
+	private void chunkedDownload(URL url, String filename, ArrayList<Integer> al, String doc_id, long flength) throws IOException {
 		while (al.size() != 0) {
-			Future<Integer>[] responses = this.receiveListedChunks(fc, al.toArray(new Integer[al.size()]), doc_id, url, flength);
+			Future<Integer>[] responses = this.receiveListedChunks(filename, al.toArray(new Integer[al.size()]), doc_id, url, flength);
 			ArrayList<Integer> al_new = new ArrayList<Integer>();
 			for (int i = 0; i < responses.length; i++) {
 				try {

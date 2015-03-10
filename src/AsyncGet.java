@@ -23,12 +23,14 @@ public class AsyncGet implements Callable<Integer>{
 	private long end;
 	private AsynchronousFileChannel fileChannel;
 
-	public AsyncGet(URL url, AsynchronousFileChannel fc, String doc_id, long start, long end) throws IOException {
+	public AsyncGet(URL url, String filename, String doc_id, long start, long end) throws IOException {
 		this.url = url;
 		this.doc_id = doc_id;
 		this.start = start;
 		this.end = end;
-		this.fileChannel = fc;
+		this.fileChannel= AsynchronousFileChannel.open(Paths.get(filename),
+				StandardOpenOption.WRITE,
+				StandardOpenOption.CREATE);
 	}
 	
 	@Override
