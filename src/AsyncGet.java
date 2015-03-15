@@ -5,6 +5,7 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.FileChannel;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
@@ -21,14 +22,15 @@ public class AsyncGet implements Callable<Integer>{
 	private String doc_id;
 	private long start;
 	private long end;
-	private AsynchronousFileChannel fileChannel;
+	private FileChannel fileChannel;
 
 	public AsyncGet(URL url, String filename, String doc_id, long start, long end) throws IOException {
 		this.url = url;
 		this.doc_id = doc_id;
 		this.start = start;
 		this.end = end;
-		this.fileChannel= AsynchronousFileChannel.open(Paths.get(filename),
+
+		this.fileChannel = FileChannel.open(Paths.get(filename), 
 				StandardOpenOption.WRITE,
 				StandardOpenOption.CREATE);
 	}
@@ -61,8 +63,7 @@ public class AsyncGet implements Callable<Integer>{
 
 		MessageDigest md = MessageDigest.getInstance("MD5");
 		if (Arrays.equals(bytesToHex(md.digest(file_chunk)).getBytes(), md5)) {
-			Future<Integer> result = fileChannel.write(ByteBuffer.wrap(file_chunk), start);
-			int resp = result.get();
+			int resp  = fileChannel.write(ByteBuffer.wrap(file_chunk), start);
 			return resp;
 		} else {
 			// Return failure

@@ -6,6 +6,7 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.FileChannel;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
@@ -22,14 +23,14 @@ public class AsyncPut implements Callable<String>{
 	private String doc_id;
 	private long start;
 	private long end;
-	private AsynchronousFileChannel fileChannel;
+	private FileChannel fileChannel;
 	
 	public AsyncPut(String filename, URL url, String doc_id, long start, long end) throws IOException {
 		this.url = url;
 		this.doc_id = doc_id;
 		this.start = start;
 		this.end = end;
-		this.fileChannel = AsynchronousFileChannel.open(Paths.get("file1.png"), StandardOpenOption.READ);
+		this.fileChannel = FileChannel.open(Paths.get(filename), StandardOpenOption.READ);
 	}
 	
 	@Override
@@ -51,9 +52,8 @@ public class AsyncPut implements Callable<String>{
 			if (end > fileChannel.size()) end = fileChannel.size();
 			httpCon.setRequestProperty("End", "" + end);
 			byte [] buffer = new byte[(int) (end-start)];
-			Future<Integer> result = fileChannel.read(ByteBuffer.wrap(buffer), start);
 			// Wait for it to finish
-			int num_read = result.get();
+			int num_read = fileChannel.read(ByteBuffer.wrap(buffer), start);
 			if (num_read != end-start) return "Not received.";
 
 			MessageDigest md = MessageDigest.getInstance("MD5");
