@@ -5,6 +5,9 @@ import java.lang.Math;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.HttpURLConnection;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.UUID;
@@ -83,11 +86,12 @@ class Client {
 	private Future<String>[] sendListedChunks(String filename, Integer[] chunks, String doc_id, URL url) throws IOException {
 		System.out.println("Processing: " + chunks.length);
 		Future<String>[] responses = new Future[chunks.length];
+		AsynchronousFileChannel fc = AsynchronousFileChannel.open(Paths.get(filename), StandardOpenOption.READ);
 		int j = 0;
 		for (int current_chunk : chunks) {
 			int start = current_chunk*CH_SIZE;
 			int end = (current_chunk+1)*CH_SIZE;
-			responses[j] = executor.submit(new AsyncPut(filename, url, doc_id, start, end));
+			responses[j] = executor.submit(new AsyncPut(filename, fc, url, doc_id, start, end));
 			j++;
 		}
 		
@@ -101,7 +105,6 @@ class Client {
 				done = true;
 			}
 		}
-//		fileChannel.close();
 		return responses;
 	}
 	
@@ -189,6 +192,8 @@ class Client {
 					}
 				} catch (ExecutionException e) {
 					System.out.println("Execution exception");
+//					e.printStackTrace();
+//					System.exit(1);
 					al_new.add(al.get(i));
 				}
 			}
@@ -248,7 +253,7 @@ class Client {
 			try {
 				URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 				HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-				int timeout = 500;
+				int timeout = 1000;
 				httpCon.setConnectTimeout(timeout);
 				httpCon.setReadTimeout(timeout);
 				httpCon.setDoOutput(true);
