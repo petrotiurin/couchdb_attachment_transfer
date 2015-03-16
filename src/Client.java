@@ -247,7 +247,7 @@ class Client {
 	}
 	
 	// Query the server for file length
-	private long getFileLength(URL url_2, String doc_id, String rev_id) throws IOException{
+	private long getFileLength(URL url_2, String doc_id, String rev_id) {
 		// Try until succeeded
 		while (true) {
 			try {
@@ -265,7 +265,7 @@ class Client {
 				String length = IOUtils.toString(response);
 				length = length.trim();
 				return Long.parseLong(length);
-			} catch (SocketTimeoutException e) {
+			} catch (IOException e) {
 				// Just retry.
 			}
 		}
