@@ -9,15 +9,15 @@ class ChunkedTransfer{
 		try {
 			JSONObject jo = c.createNewDoc();
 			JSONObject new_jo = c.sendChunkedFile(args[0], jo.getString("id"), jo.getString("rev"));
-			String new_id, new_rev;
-			try {
-				new_id = new_jo.getString("id");
-				new_rev = new_jo.getString("rev");
-			} catch (JSONException e) {
-				new_id = new_jo.getString("_id");
-				new_rev = new_jo.getString("_rev");
-			}
-			c.receiveChunkedFile(new_id, new_rev);
+//			String new_id, new_rev;
+//			try {
+//				new_id = new_jo.getString("id");
+//				new_rev = new_jo.getString("rev");
+//			} catch (JSONException e) {
+//				new_id = new_jo.getString("_id");
+//				new_rev = new_jo.getString("_rev");
+//			}
+//			c.receiveChunkedFile(new_id, new_rev);
 			System.exit(0);
 		} catch (Exception e) {
 			e.printStackTrace();

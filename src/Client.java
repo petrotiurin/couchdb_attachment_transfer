@@ -10,6 +10,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Stack;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -33,11 +34,13 @@ class Client {
 	private static String DB_SERVER = "127.0.0.1";
 	private static String DB_PORT = "5984";
 	
+	private static int THREAD_NUM = 4;
+	
 	private ExecutorService executor;
 	
 	public Client(){
 		// Set up number of available threads
-		this.executor = Executors.newFixedThreadPool(4); 
+		this.executor = Executors.newFixedThreadPool(THREAD_NUM); 
 	}
 	
 	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {
@@ -83,15 +86,13 @@ class Client {
 		return responses;
 	}
 	
-	private Future<String>[] sendListedChunks(String filename, Integer[] chunks, String doc_id, URL url) throws IOException {
-		System.out.println("Processing: " + chunks.length);
+	private Future<String>[] sendListedChunks(String filename, int[] chunks, String doc_id, URL url) throws IOException {
 		Future<String>[] responses = new Future[chunks.length];
-		AsynchronousFileChannel fc = AsynchronousFileChannel.open(Paths.get(filename), StandardOpenOption.READ);
 		int j = 0;
 		for (int current_chunk : chunks) {
 			int start = current_chunk*CH_SIZE;
 			int end = (current_chunk+1)*CH_SIZE;
-			responses[j] = executor.submit(new AsyncPut(filename, fc, url, doc_id, start, end));
+			responses[j] = executor.submit(new AsyncPut(filename, url, doc_id, start, end));
 			j++;
 		}
 		
@@ -117,10 +118,11 @@ class Client {
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
 		
-		ArrayList<Integer> al = new ArrayList<Integer>();
-		for (int i = 0; i < chunk_num; i++) al.add(i);
+//		ArrayList<Integer> al = new ArrayList<Integer>();
+		Stack<Integer> st = new Stack<Integer>();
+		for (int i = 0; i < chunk_num; i++) st.push(i);
 		
-		this.chunkedUpload(url, al, filename, doc_id);
+		this.chunkedUpload(url, st, filename, doc_id);
 
 		System.out.println("Chunks sent. Asking server to update the doc.");
 		// Tell server to send the file.
@@ -177,28 +179,28 @@ class Client {
 	}
 	
 	// Send file chunks until all have been sent and acknowledged by server
-	private void chunkedUpload(URL url, ArrayList<Integer> al, String filename, String doc_id) throws IOException, InterruptedException {
+	private void chunkedUpload(URL url, Stack<Integer> stack, String filename, String doc_id) throws IOException, InterruptedException {
 		// TODO: add new threads on the go. (use .isDone())
-		while (al.size() != 0) {
-			Future<String>[] responses = this.sendListedChunks(filename, al.toArray(new Integer[al.size()]) , doc_id, url);
+		
+		while (!stack.isEmpty()) {
+//			System.out.println("Processing: " + stack.size());
+			int chunks[] = new int[8*THREAD_NUM];
+			for (int i = 0; i < 8*THREAD_NUM && !stack.isEmpty(); i++) chunks[i] = stack.pop();
+			Future<String>[] responses = this.sendListedChunks(filename, chunks , doc_id, url);
 			ArrayList<Integer> al_new = new ArrayList<Integer>();
 			for (int i = 0; i < responses.length; i++) {
 				try {
 					// wait for completion
 					String out = responses[i].get();
 					// Check if the right chunk received
-					if (!out.equals("Chunk received " + al.get(i)*CH_SIZE)){
-						al_new.add(al.get(i));
+					if (!out.equals("Chunk received " + chunks[i]*CH_SIZE)){
+						stack.push(chunks[i]);
 					}
 				} catch (ExecutionException e) {
 					System.out.println("Execution exception");
-//					e.printStackTrace();
-//					System.exit(1);
-					al_new.add(al.get(i));
+					stack.push(chunks[i]);
 				}
 			}
-			al.clear(); // might be unnecessary
-			al = al_new;
 		}
 	}
 	

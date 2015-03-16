@@ -25,7 +25,7 @@ public class AsyncPut implements Callable<String>{
 	private long end;
 	private FileChannel fileChannel;
 	
-	public AsyncPut(String filename, AsynchronousFileChannel fc, URL url, String doc_id, long start, long end) throws IOException {
+	public AsyncPut(String filename, URL url, String doc_id, long start, long end) throws IOException {
 		this.url = url;
 		this.doc_id = doc_id;
 		this.start = start;
@@ -66,7 +66,7 @@ public class AsyncPut implements Callable<String>{
 			String resp_str = IOUtils.toString(response);
 			resp_str = resp_str.trim();
 			response.close();
-//			fileChannel.close();
+			fileChannel.close();
 			return resp_str;
 		} catch (SocketTimeoutException e) {
 			return "Not received.";
