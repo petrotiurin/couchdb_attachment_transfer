@@ -86,29 +86,6 @@ class Client {
 		return responses;
 	}
 	
-	private Future<String>[] sendListedChunks(String filename, int[] chunks, String doc_id, URL url) throws IOException {
-		Future<String>[] responses = new Future[chunks.length];
-		int j = 0;
-		for (int current_chunk : chunks) {
-			int start = current_chunk*CH_SIZE;
-			int end = (current_chunk+1)*CH_SIZE;
-			responses[j] = executor.submit(new AsyncPut(filename, url, doc_id, start, end));
-			j++;
-		}
-		
-		// Wait for completion of all tasks
-		boolean done = true;
-		for (int i = 0; i < chunks.length; i++) {
-			//System.out.println(responses[i].isDone());
-			done = done && responses[i].isDone();
-			if ((i + 1 == chunks.length) && !done){
-				i = -1;
-				done = true;
-			}
-		}
-		return responses;
-	}
-	
 	public JSONObject sendChunkedFile(String filename, String doc_id, String rev_id) throws Exception {
 
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
@@ -118,7 +95,6 @@ class Client {
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
 		
-//		ArrayList<Integer> al = new ArrayList<Integer>();
 		Stack<Integer> st = new Stack<Integer>();
 		for (int i = 0; i < chunk_num; i++) st.push(i);
 		
@@ -180,26 +156,51 @@ class Client {
 	
 	// Send file chunks until all have been sent and acknowledged by server
 	private void chunkedUpload(URL url, Stack<Integer> stack, String filename, String doc_id) throws IOException, InterruptedException {
-		// TODO: add new threads on the go. (use .isDone())
 		
+		int nsimul_tasks = 4*THREAD_NUM;
+		
+		Future<String>[] responses = new Future[nsimul_tasks];
+		// Keep track of processed chunks
+		int chunks_in_process[] = new int[nsimul_tasks];
+		// Initial send threads
+		for (int i = 0; i < nsimul_tasks && !stack.isEmpty(); i++) {
+			int chunk = stack.pop();
+			int start = chunk*CH_SIZE;
+			int end = (chunk+1)*CH_SIZE;
+			responses[i] = executor.submit(new AsyncPut(filename, url, doc_id, start, end));
+			chunks_in_process[i] = chunk;
+		}
+		
+		// Replace with new if any of the threads are finished
 		while (!stack.isEmpty()) {
-//			System.out.println("Processing: " + stack.size());
-			int chunks[] = new int[8*THREAD_NUM];
-			for (int i = 0; i < 8*THREAD_NUM && !stack.isEmpty(); i++) chunks[i] = stack.pop();
-			Future<String>[] responses = this.sendListedChunks(filename, chunks , doc_id, url);
-			ArrayList<Integer> al_new = new ArrayList<Integer>();
-			for (int i = 0; i < responses.length; i++) {
-				try {
-					// wait for completion
-					String out = responses[i].get();
-					// Check if the right chunk received
-					if (!out.equals("Chunk received " + chunks[i]*CH_SIZE)){
-						stack.push(chunks[i]);
+			for (int i = 0; i < nsimul_tasks && !stack.isEmpty(); i++) {
+				if (responses[i].isDone()) {
+					int chunk;
+					try {
+						String resp = responses[i].get();
+						if (resp.equals("Not received.")) {
+							chunk = chunks_in_process[i];
+						} else {
+							chunk = stack.pop();
+						}
+					} catch (ExecutionException e) {
+						chunk = chunks_in_process[i];
 					}
-				} catch (ExecutionException e) {
-					System.out.println("Execution exception");
-					stack.push(chunks[i]);
+					int start = chunk*CH_SIZE;
+					int end = (chunk+1)*CH_SIZE;
+					responses[i] = executor.submit(new AsyncPut(filename, url, doc_id, start, end));
+					chunks_in_process[i] = chunk;
 				}
+			}
+		}
+		
+		// Wait for completion of all tasks
+		boolean done = true;
+		for (int i = 0; i < nsimul_tasks; i++) {
+			done = done && responses[i].isDone();
+			if ((i + 1 == nsimul_tasks) && !done){
+				i = -1;
+				done = true;
 			}
 		}
 	}
