@@ -16,27 +16,19 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 
-public class AsyncGet implements Callable<Integer>{
+public class AsyncGet extends AsyncTask {
 	
-	private URL url;
-	private String doc_id;
-	private long start;
-	private long end;
 	private FileChannel fileChannel;
 
-	public AsyncGet(URL url, String filename, String doc_id, long start, long end) throws IOException {
-		this.url = url;
-		this.doc_id = doc_id;
-		this.start = start;
-		this.end = end;
-
+	public AsyncGet(String filename, URL url, String doc_id, long start, long end) throws IOException {
+		super(filename, url, doc_id, start, end);
 		this.fileChannel = FileChannel.open(Paths.get(filename), 
 				StandardOpenOption.WRITE,
 				StandardOpenOption.CREATE);
 	}
 	
 	@Override
-	public Integer call() throws IOException, ExecutionException, InterruptedException, SocketTimeoutException, NoSuchAlgorithmException {
+	public String call() throws IOException, ExecutionException, InterruptedException, SocketTimeoutException, NoSuchAlgorithmException {
 		HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 		
 		// TIMEOUT
@@ -64,10 +56,12 @@ public class AsyncGet implements Callable<Integer>{
 		MessageDigest md = MessageDigest.getInstance("MD5");
 		if (Arrays.equals(bytesToHex(md.digest(file_chunk)).getBytes(), md5)) {
 			int resp  = fileChannel.write(ByteBuffer.wrap(file_chunk), start);
-			return resp;
+			fileChannel.close();
+			return String.valueOf(resp);
 		} else {
 			// Return failure
-			return 0;
+			fileChannel.close();
+			return "0";
 		}
 	}
 	

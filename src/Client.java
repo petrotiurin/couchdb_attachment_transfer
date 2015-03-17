@@ -12,6 +12,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Stack;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -34,7 +35,7 @@ class Client {
 	private static String DB_SERVER = "127.0.0.1";
 	private static String DB_PORT = "5984";
 	
-	private static int THREAD_NUM = 4;
+	private static int THREAD_NUM = 20;
 	
 	private ExecutorService executor;
 	
@@ -43,7 +44,7 @@ class Client {
 		this.executor = Executors.newFixedThreadPool(THREAD_NUM); 
 	}
 	
-	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException {
+	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException, ClassNotFoundException {
 		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
 		
 		long flength = this.getFileLength(url, doc_id, doc_rev);
@@ -52,38 +53,12 @@ class Client {
 		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE);
 		System.out.println("Chunks to receive: " + chunk_num);
 
-		ArrayList<Integer> al = new ArrayList<Integer>();
-		for (int i = 0; i < chunk_num; i++) al.add(i);
+		Stack<Integer> st = new Stack<Integer>();
+		for (int i = 0; i < chunk_num; i++) st.push(i);
 		
-		this.chunkedDownload(url, "out_file.png", al, doc_id, flength);
+		this.chunkedOperation(url, st, "out_file.png", doc_id, flength, AsyncGet.class.getName());
 		
 		System.out.println("Download finished!");
-	}
-	
-	private Future<Integer>[] receiveListedChunks(String filename, Integer[] chunks, String doc_id, URL url, long flength) throws IOException {
-		System.out.println("Processing (in): " + chunks.length);
-		
-		Future<Integer>[] responses = new Future[chunks.length];
-		int j = 0;
-		for (int current_chunk : chunks){
-			long start = current_chunk*CH_SIZE;
-			long end = (current_chunk+1)*CH_SIZE;
-			if (end > flength) end = flength;
-			responses[j] = executor.submit(new AsyncGet(url, filename, doc_id, start, end));
-			j++;
-		}
-
-		// Wait for completion of all tasks
-		boolean done = true;
-		for (int i = 0; i < chunks.length; i++) {
-			done = done && responses[i].isDone();
-			if ((i + 1 == chunks.length) && !done){
-				i = -1;
-				done = true;
-			}
-		}
-		
-		return responses;
 	}
 	
 	public JSONObject sendChunkedFile(String filename, String doc_id, String rev_id) throws Exception {
@@ -94,11 +69,12 @@ class Client {
 		
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
+		System.out.println("Chunks to send: " + chunk_num);
 		
 		Stack<Integer> st = new Stack<Integer>();
 		for (int i = 0; i < chunk_num; i++) st.push(i);
 		
-		this.chunkedUpload(url, st, filename, doc_id);
+		this.chunkedOperation(url, st, filename, doc_id, f.length(), AsyncPut.class.getName());
 
 		System.out.println("Chunks sent. Asking server to update the doc.");
 		// Tell server to send the file.
@@ -133,74 +109,61 @@ class Client {
 		}
 	}
 	
-	// Download file chunks from the server until all have been received
-	private void chunkedDownload(URL url, String filename, ArrayList<Integer> al, String doc_id, long flength) throws IOException {
-		while (al.size() != 0) {
-			Future<Integer>[] responses = this.receiveListedChunks(filename, al.toArray(new Integer[al.size()]), doc_id, url, flength);
-			ArrayList<Integer> al_new = new ArrayList<Integer>();
-			for (int i = 0; i < responses.length; i++) {
-				try {
-					int resp = responses[i].get();
-					if (resp == 0){
-						al_new.add(al.get(i));
-						System.out.println("Checksum mismatch!");
-					}
-				} catch (ExecutionException|InterruptedException e) {
-					al_new.add(al.get(i));
-				}
-			}
-			al.clear(); // might be unnecessary
-			al = al_new;
-		}
-	}
-	
-	// Send file chunks until all have been sent and acknowledged by server
-	private void chunkedUpload(URL url, Stack<Integer> stack, String filename, String doc_id) throws IOException, InterruptedException {
+	// Send/receive file chunks until all have been sent/received and acknowledged
+	private void chunkedOperation(URL url, Stack<Integer> stack, String filename, String doc_id, long flength, String className) throws IOException, InterruptedException, ClassNotFoundException {
 		
-		int nsimul_tasks = 4*THREAD_NUM;
+		int nsimul_tasks = 2*THREAD_NUM;
 		
-		Future<String>[] responses = new Future[nsimul_tasks];
+		Future<Object>[] responses = new Future[nsimul_tasks];
 		// Keep track of processed chunks
 		int chunks_in_process[] = new int[nsimul_tasks];
 		// Initial send threads
 		for (int i = 0; i < nsimul_tasks && !stack.isEmpty(); i++) {
 			int chunk = stack.pop();
-			int start = chunk*CH_SIZE;
-			int end = (chunk+1)*CH_SIZE;
-			responses[i] = executor.submit(new AsyncPut(filename, url, doc_id, start, end));
+			long start = chunk*CH_SIZE;
+			long end = (chunk+1)*CH_SIZE;
+			if (end > flength) end = flength;
+			AsyncTask at;
+			if (AsyncGet.class.equals(Class.forName(className))) at = new AsyncGet(filename, url, doc_id, start, end);
+			else at = new AsyncPut(filename, url, doc_id, start, end);
+			responses[i] = executor.submit(at);
 			chunks_in_process[i] = chunk;
 		}
 		
 		// Replace with new if any of the threads are finished
-		while (!stack.isEmpty()) {
-			for (int i = 0; i < nsimul_tasks && !stack.isEmpty(); i++) {
-				if (responses[i].isDone()) {
+		boolean done = false;
+		while (!done) {
+			done = true;
+			for (int i = 0; i < chunks_in_process.length; i++) {
+				// Check if any threads are finished
+				if (responses[i] != null && responses[i].isDone()) {
 					int chunk;
 					try {
-						String resp = responses[i].get();
-						if (resp.equals("Not received.")) {
+						String resp = (String) responses[i].get();
+						if (resp.equals("Not received.") || resp.equals("0")) {
+							// If task failed - retry
 							chunk = chunks_in_process[i];
 						} else {
+							// If task succeeded
+							if (stack.isEmpty()){
+								responses[i] = null;
+								continue;
+							}
 							chunk = stack.pop();
 						}
-					} catch (ExecutionException e) {
+					} catch (ExecutionException|InterruptedException e) {
+						// Exception is a failure, retry
 						chunk = chunks_in_process[i];
 					}
-					int start = chunk*CH_SIZE;
-					int end = (chunk+1)*CH_SIZE;
-					responses[i] = executor.submit(new AsyncPut(filename, url, doc_id, start, end));
+					long start = chunk*CH_SIZE;
+					long end = (chunk+1)*CH_SIZE;
+					AsyncTask at;
+					if (AsyncGet.class.equals(Class.forName(className))) at = new AsyncGet(filename, url, doc_id, start, end);
+					else at = new AsyncPut(filename, url, doc_id, start, end);
+					responses[i] = executor.submit(at);
 					chunks_in_process[i] = chunk;
 				}
-			}
-		}
-		
-		// Wait for completion of all tasks
-		boolean done = true;
-		for (int i = 0; i < nsimul_tasks; i++) {
-			done = done && responses[i].isDone();
-			if ((i + 1 == nsimul_tasks) && !done){
-				i = -1;
-				done = true;
+				if (responses[i] != null) done = false;
 			}
 		}
 	}

@@ -17,19 +17,12 @@ import java.util.concurrent.Future;
 
 import org.apache.commons.io.IOUtils;
 
-public class AsyncPut implements Callable<String>{
+public class AsyncPut extends AsyncTask{
 
-	private URL url;
-	private String doc_id;
-	private long start;
-	private long end;
 	private FileChannel fileChannel;
 	
 	public AsyncPut(String filename, URL url, String doc_id, long start, long end) throws IOException {
-		this.url = url;
-		this.doc_id = doc_id;
-		this.start = start;
-		this.end = end;
+		super(filename, url, doc_id, start, end);
 		this.fileChannel = FileChannel.open(Paths.get(filename), StandardOpenOption.READ);
 	}
 	
