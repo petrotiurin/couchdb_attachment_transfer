@@ -35,7 +35,7 @@ class Client {
 	private static String DB_SERVER = "127.0.0.1";
 	private static String DB_PORT = "5984";
 	
-	private static int THREAD_NUM = 20;
+	private static int THREAD_NUM = 4;
 	
 	private ExecutorService executor;
 	
@@ -137,6 +137,7 @@ class Client {
 			for (int i = 0; i < chunks_in_process.length; i++) {
 				// Check if any threads are finished
 				if (responses[i] != null && responses[i].isDone()) {
+					System.out.println(stack.size() + chunks_in_process.length);
 					int chunk;
 					try {
 						String resp = (String) responses[i].get();
@@ -153,6 +154,7 @@ class Client {
 						}
 					} catch (ExecutionException|InterruptedException e) {
 						// Exception is a failure, retry
+//						if (stack.isEmpty()) e.printStackTrace();
 						chunk = chunks_in_process[i];
 					}
 					long start = chunk*CH_SIZE;

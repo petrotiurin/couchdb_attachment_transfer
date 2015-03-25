@@ -21,7 +21,7 @@ public class AsyncGet extends AsyncTask {
 	private FileChannel fileChannel;
 
 	public AsyncGet(String filename, URL url, String doc_id, long start, long end) throws IOException {
-		super(filename, url, doc_id, start, end);
+		super(filename, url, doc_id, start, end);		
 		this.fileChannel = FileChannel.open(Paths.get(filename), 
 				StandardOpenOption.WRITE,
 				StandardOpenOption.CREATE);
@@ -46,10 +46,16 @@ public class AsyncGet extends AsyncTask {
 		int chunk_size = (int) (end - start);
 		InputStream response = httpCon.getInputStream();
 		byte [] buffer = new byte[32 + chunk_size];
+		int read = response.read(buffer);
+		response.close();
+		if (read < chunk_size) {
+			byte[] buffer_old = buffer;
+			buffer = new byte[read];
+			System.arraycopy(buffer_old, 0, buffer, 0, read);
+			chunk_size = read - 32;
+		}
 		byte [] file_chunk = new byte[chunk_size];
 		byte [] md5 = new byte[32];
-		response.read(buffer);
-		response.close();
 		System.arraycopy(buffer, chunk_size, md5, 0, 32);
 		System.arraycopy(buffer, 0, file_chunk, 0, chunk_size);
 
@@ -59,6 +65,7 @@ public class AsyncGet extends AsyncTask {
 			fileChannel.close();
 			return String.valueOf(resp);
 		} else {
+			System.out.println("MD5 mismatch!");
 			// Return failure
 			fileChannel.close();
 			return "0";
