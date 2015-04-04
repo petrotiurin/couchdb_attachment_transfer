@@ -34,8 +34,8 @@ public class AsyncPut extends AsyncTask{
 			httpCon.setDoOutput(true);
 			httpCon.setRequestMethod("PUT");
 			httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-			httpCon.setRequestProperty("DocID", "" + doc_id);
-
+			httpCon.setRequestProperty("Chunked-Transfer", "true");
+			
 			// TIMEOUT
 			int timeout = 1000;
 			httpCon.setConnectTimeout(timeout);
@@ -55,12 +55,16 @@ public class AsyncPut extends AsyncTask{
 			out.write(buffer);
 			out.close();
 
-			InputStream response = httpCon.getInputStream();
-			String resp_str = IOUtils.toString(response);
-			resp_str = resp_str.trim();
-			response.close();
-			fileChannel.close();
-			return resp_str;
+			if (httpCon.getResponseCode() != 201) {
+				return "Not received.";
+			} else {
+				InputStream response = httpCon.getInputStream();
+				String resp_str = IOUtils.toString(response);
+				//			resp_str = resp_str.trim();
+				response.close();
+				fileChannel.close();
+				return resp_str;
+			}
 		} catch (SocketTimeoutException e) {
 			return "Not received.";
 		}

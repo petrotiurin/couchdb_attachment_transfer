@@ -27,9 +27,13 @@ class Client {
 	// Chunk size
 	private static int CH_SIZE = 2048;
 	
-	private static String PATH = "ChunkServer/MainServlet";
+//	private static String PATH = "ChunkServer/MainServlet";
+//	private static String SERVER = "127.0.0.1";
+//	private static String PORT = "8080"; 
+	
+	private static String PATH = "potato1";
 	private static String SERVER = "127.0.0.1";
-	private static String PORT = "8080"; 
+	private static String PORT = "5984"; 
 	
 	private static String DB_NAME = "potato1";
 	private static String DB_SERVER = "127.0.0.1";
@@ -63,9 +67,9 @@ class Client {
 	
 	public JSONObject sendChunkedFile(String filename, String doc_id, String rev_id) throws Exception {
 
-		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH);
+		URL url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH + "/" + doc_id + "/" + filename);
 		
-		this.startFileTransfer(url, doc_id);
+//		this.startFileTransfer(url, doc_id);
 		
 		File f = new File(filename);
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
@@ -78,9 +82,10 @@ class Client {
 
 		System.out.println("Chunks sent. Asking server to update the doc.");
 		// Tell server to send the file.
-		JSONObject jo = this.finaliseUpload(url,doc_id, rev_id);
+//		JSONObject jo = this.finaliseUpload(url,doc_id, rev_id);
 		System.out.println("Upload finished!");
-		return jo;
+		return null;
+//		return jo;
 	}
 	
 	// Creates a doc with random id
