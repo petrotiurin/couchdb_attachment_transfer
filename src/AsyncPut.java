@@ -21,13 +21,14 @@ public class AsyncPut extends AsyncTask{
 
 	private FileChannel fileChannel;
 	
-	public AsyncPut(String filename, URL url, String doc_id, long start, long end) throws IOException {
-		super(filename, url, doc_id, start, end);
+	public AsyncPut(String filename, URL url, String doc_id, String doc_rev, long start, long end) throws IOException {
+		super(filename, url, doc_id, doc_rev, start, end);
 		this.fileChannel = FileChannel.open(Paths.get(filename), StandardOpenOption.READ);
 	}
 	
 	@Override
-	public String call() throws IOException, InterruptedException, ExecutionException, NoSuchAlgorithmException {
+	public String call() throws Exception{
+//		throws IOException, InterruptedException, ExecutionException, NoSuchAlgorithmException
 		try {
 			HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 
@@ -37,11 +38,12 @@ public class AsyncPut extends AsyncTask{
 			httpCon.setRequestProperty("Chunked-Transfer", "true");
 			
 			// TIMEOUT
-			int timeout = 1000;
+			int timeout = 500;
 			httpCon.setConnectTimeout(timeout);
 			httpCon.setReadTimeout(timeout);
 			
 			httpCon.setRequestProperty("Start", "" + start);
+//			httpCon.setRequestProperty("If-Match", doc_rev);
 			if (end > fileChannel.size()) end = fileChannel.size();
 			httpCon.setRequestProperty("End", "" + end);
 			byte [] buffer = new byte[(int) (end-start)];
@@ -65,8 +67,8 @@ public class AsyncPut extends AsyncTask{
 				fileChannel.close();
 				return resp_str;
 			}
-		} catch (SocketTimeoutException e) {
-			return "Not received.";
+		} catch (Exception e) {
+			throw new Exception(""+start);
 		}
 	}
 	

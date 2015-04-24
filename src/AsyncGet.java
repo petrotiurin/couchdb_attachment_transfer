@@ -20,8 +20,8 @@ public class AsyncGet extends AsyncTask {
 	
 	private FileChannel fileChannel;
 
-	public AsyncGet(String filename, URL url, String doc_id, long start, long end) throws IOException {
-		super(filename, url, doc_id, start, end);		
+	public AsyncGet(String filename, URL url, String doc_id, String rev_id, long start, long end) throws IOException {
+		super(filename, url, doc_id, rev_id, start, end);		
 		this.fileChannel = FileChannel.open(Paths.get(filename), 
 				StandardOpenOption.WRITE,
 				StandardOpenOption.CREATE);

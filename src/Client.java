@@ -2,6 +2,7 @@ import java.io.IOException;
 import java.lang.Exception;
 import java.io.File;
 import java.lang.Math;
+import java.net.MalformedURLException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.HttpURLConnection;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Stack;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,9 +25,15 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.apache.commons.io.IOUtils;
 
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
+
 class Client {
 	// Chunk size
-	private static int CH_SIZE = 2048;
+	public static int CH_SIZE;
 	
 //	private static String PATH = "ChunkServer/MainServlet";
 //	private static String SERVER = "127.0.0.1";
@@ -41,11 +49,23 @@ class Client {
 	
 	private static int THREAD_NUM = 4;
 	
-	private ExecutorService executor;
+	private final Stack<Integer> chunkStack = new Stack<Integer>();
+	private final int chunks_in_process[] = new int[THREAD_NUM*2];
+	private final String filename;
+	private final URL url;
+	private final String doc_id, rev_id;
 	
-	public Client(){
+	
+	private ListeningExecutorService executor;
+	
+	public Client(String filename, String doc_id, String doc_rev, int chunk_size) throws MalformedURLException{
 		// Set up number of available threads
-		this.executor = Executors.newFixedThreadPool(THREAD_NUM); 
+		this.executor = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(THREAD_NUM)); 
+		this.url = new URL("http://" + SERVER + ":" + PORT + "/" + PATH + "/" + doc_id + "/" + filename);
+		this.doc_id = doc_id;
+		this.rev_id = doc_rev;
+		this.filename = filename;
+		this.CH_SIZE = chunk_size;
 	}
 	
 	public void receiveChunkedFile(String doc_id, String doc_rev) throws IOException, InterruptedException, ExecutionException, ClassNotFoundException {
@@ -57,10 +77,10 @@ class Client {
 		int chunk_num = (int) Math.ceil(flength/(double)CH_SIZE);
 		System.out.println("Chunks to receive: " + chunk_num);
 
-		Stack<Integer> st = new Stack<Integer>();
-		for (int i = 0; i < chunk_num; i++) st.push(i);
+//		chunkStack = new Stack<Integer>();
+		for (int i = 0; i < chunk_num; i++) chunkStack.push(i);
 		
-		this.chunkedOperation(url, st, "out_file.png", doc_id, flength, AsyncGet.class.getName());
+		this.chunkedOperation(url, chunkStack, "out_file.png", doc_id, doc_rev, flength, AsyncGet.class.getName());
 		
 		System.out.println("Download finished!");
 	}
@@ -75,104 +95,102 @@ class Client {
 		int chunk_num = (int) Math.ceil(f.length()/(double)CH_SIZE);
 		System.out.println("Chunks to send: " + chunk_num);
 		
-		Stack<Integer> st = new Stack<Integer>();
-		for (int i = 0; i < chunk_num; i++) st.push(i);
+//		chunkStack = new Stack<Integer>();
+		for (int i = 0; i < chunk_num; i++) chunkStack.push(i);
 		
-		this.chunkedOperation(url, st, filename, doc_id, f.length(), AsyncPut.class.getName());
+		this.chunkedOperation(url, chunkStack, filename, doc_id, rev_id, f.length(), AsyncPut.class.getName());
 
 		System.out.println("Chunks sent. Asking server to update the doc.");
 		// Tell server to send the file.
-//		JSONObject jo = this.finaliseUpload(url,doc_id, rev_id);
-		System.out.println("Upload finished!");
+		JSONObject jo = this.finaliseUpload(url, doc_id, rev_id);
+		System.out.println("Upload finished!" + rev_id);
 		return null;
 //		return jo;
 	}
 	
 	// Creates a doc with random id
-	public JSONObject createNewDoc() {
-		try {
-			String doc_id = "a" + UUID.randomUUID().toString();
-			URL url = new URL("http://" + DB_SERVER + ":" + DB_PORT + "/"
-							  + DB_NAME + "/" + doc_id);
-			HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
-			httpCon.setDoOutput(true);
-			httpCon.setRequestMethod("PUT");
-			httpCon.setRequestProperty("Content-Type", "application/json");
-			OutputStreamWriter out = new OutputStreamWriter(httpCon.getOutputStream());
-			out.write("{}");
-			out.close();
-			InputStream response = httpCon.getInputStream();
-			String resp_string = IOUtils.toString(response);
-			resp_string = resp_string.trim();
-			response.close();
-			JSONObject jo = new JSONObject(resp_string);
-			System.out.println(jo.getString("id"));
-			return jo;
-		} catch (IOException e) {
-			e.printStackTrace();
-			return null;
+	public static JSONObject createNewDoc() {
+		while (true){
+			try {
+				String doc_id = "a" + UUID.randomUUID().toString();
+				URL url = new URL("http://" + DB_SERVER + ":" + DB_PORT + "/"
+						+ DB_NAME + "/" + doc_id);
+				HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
+				httpCon.setDoOutput(true);
+				httpCon.setConnectTimeout(300);
+				httpCon.setReadTimeout(300);
+				httpCon.setRequestMethod("PUT");
+				httpCon.setRequestProperty("Content-Type", "application/json");
+				OutputStreamWriter out = new OutputStreamWriter(httpCon.getOutputStream());
+				out.write("{}");
+				out.close();
+				InputStream response = httpCon.getInputStream();
+				String resp_string = IOUtils.toString(response);
+				resp_string = resp_string.trim();
+				response.close();
+				JSONObject jo = new JSONObject(resp_string);
+				System.out.println(jo.getString("id"));
+				return jo;
+			} catch (Exception e) {
+//				e.printStackTrace();
+//				return null;
+			}
 		}
 	}
 	
+	private ListenableFuture<Object> createNewTask(String className) throws IOException, ClassNotFoundException {
+		int chunk = chunkStack.pop();
+//		System.out.println(chunk);
+		long start = chunk*CH_SIZE;
+		long end = (chunk+1)*CH_SIZE;
+		AsyncTask at;
+		if (AsyncGet.class.equals(Class.forName(className))) at = new AsyncGet(filename, url, doc_id, rev_id, start, end);
+		else at = new AsyncPut(filename, url, doc_id, rev_id, start, end);
+		return executor.submit(at);
+	}
+	
+	private void addCallback(ListenableFuture<Object> lf, final CountDownLatch cdl) {
+		Futures.addCallback(lf, new FutureCallback<Object>() {
+			public void onSuccess(Object explosion) {
+				if (!chunkStack.isEmpty()){
+					try {
+						ListenableFuture<Object> new_lf = createNewTask(this.getClass().getName());
+						addCallback(new_lf, cdl);
+					} catch (ClassNotFoundException|IOException e) {
+						e.printStackTrace();
+					}
+				} else {
+					cdl.countDown();
+				}
+			}
+			public void onFailure(Throwable thrown) {
+				Long start = Long.parseLong(thrown.getMessage());
+				chunkStack.push((int) (start/Client.CH_SIZE));
+//				System.out.println(start);
+				try {
+					ListenableFuture<Object> new_lf = createNewTask(this.getClass().getName());
+					addCallback(new_lf, cdl);
+				} catch (ClassNotFoundException|IOException e) {
+					e.printStackTrace();
+				}
+			}
+		});
+	}
+	
 	// Send/receive file chunks until all have been sent/received and acknowledged
-	private void chunkedOperation(URL url, Stack<Integer> stack, String filename, String doc_id, long flength, String className) throws IOException, InterruptedException, ClassNotFoundException {
+	private void chunkedOperation(URL url, Stack<Integer> stack, String filename, String doc_id, String rev_id, long flength, String className) throws IOException, InterruptedException, ClassNotFoundException {
 		
-		int nsimul_tasks = 2*THREAD_NUM;
+		int nsimul_tasks = THREAD_NUM;
 		
-		Future<Object>[] responses = new Future[nsimul_tasks];
-		// Keep track of processed chunks
-		int chunks_in_process[] = new int[nsimul_tasks];
+		CountDownLatch cdl = new CountDownLatch(nsimul_tasks);
+		
 		// Initial send threads
 		for (int i = 0; i < nsimul_tasks && !stack.isEmpty(); i++) {
-			int chunk = stack.pop();
-			long start = chunk*CH_SIZE;
-			long end = (chunk+1)*CH_SIZE;
-			if (end > flength) end = flength;
-			AsyncTask at;
-			if (AsyncGet.class.equals(Class.forName(className))) at = new AsyncGet(filename, url, doc_id, start, end);
-			else at = new AsyncPut(filename, url, doc_id, start, end);
-			responses[i] = executor.submit(at);
-			chunks_in_process[i] = chunk;
+			ListenableFuture<Object> response = createNewTask(className);
+			addCallback(response, cdl);
 		}
 		
-		// Replace with new if any of the threads are finished
-		boolean done = false;
-		while (!done) {
-			done = true;
-			for (int i = 0; i < chunks_in_process.length; i++) {
-				// Check if any threads are finished
-				if (responses[i] != null && responses[i].isDone()) {
-					System.out.println(stack.size() + chunks_in_process.length);
-					int chunk;
-					try {
-						String resp = (String) responses[i].get();
-						if (resp.equals("Not received.") || resp.equals("0")) {
-							// If task failed - retry
-							chunk = chunks_in_process[i];
-						} else {
-							// If task succeeded
-							if (stack.isEmpty()){
-								responses[i] = null;
-								continue;
-							}
-							chunk = stack.pop();
-						}
-					} catch (ExecutionException|InterruptedException e) {
-						// Exception is a failure, retry
-//						if (stack.isEmpty()) e.printStackTrace();
-						chunk = chunks_in_process[i];
-					}
-					long start = chunk*CH_SIZE;
-					long end = (chunk+1)*CH_SIZE;
-					AsyncTask at;
-					if (AsyncGet.class.equals(Class.forName(className))) at = new AsyncGet(filename, url, doc_id, start, end);
-					else at = new AsyncPut(filename, url, doc_id, start, end);
-					responses[i] = executor.submit(at);
-					chunks_in_process[i] = chunk;
-				}
-				if (responses[i] != null) done = false;
-			}
-		}
+		cdl.await();
 	}
 	
 	// Tell server to send file to the database
@@ -184,10 +202,10 @@ class Client {
 				httpCon.setDoOutput(true);
 				httpCon.setRequestMethod("PUT");
 				httpCon.setRequestProperty("Content-Type", "application/octet-stream");
-				httpCon.setRequestProperty("DocID", "" + doc_id);
 				httpCon.setConnectTimeout(timeout);
-				httpCon.setReadTimeout(timeout);
-				httpCon.setRequestProperty("RevID", "" + rev_id);
+//				httpCon.setReadTimeout(timeout);
+				httpCon.setRequestProperty("If-Match", rev_id);
+				httpCon.setRequestProperty("Chunked-Transfer", "final");
 				InputStream response = httpCon.getInputStream();
 				String resp_str = IOUtils.toString(response);
 				resp_str = resp_str.trim();
@@ -195,6 +213,7 @@ class Client {
 				return new JSONObject(resp_str);
 			} catch (SocketTimeoutException|JSONException e) {
 				// Just retry
+				e.printStackTrace();
 			}
 		}
 	}

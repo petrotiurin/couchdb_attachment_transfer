@@ -5,9 +5,10 @@ import org.json.JSONObject;
 
 class ChunkedTransfer{
 	public static void main(String[] args) {
-		Client c = new Client();
 		try {
-			JSONObject jo = c.createNewDoc();
+			JSONObject jo = Client.createNewDoc();
+			Client c = new Client(args[0], jo.getString("id"), jo.getString("rev"), Integer.parseInt(args[1]));
+//			c.CH_SIZE = Integer.parseInt(args[1]);
 			JSONObject new_jo = c.sendChunkedFile(args[0], jo.getString("id"), jo.getString("rev"));
 //			String new_id, new_rev;
 //			try {
@@ -18,7 +19,7 @@ class ChunkedTransfer{
 //				new_rev = new_jo.getString("_rev");
 //			}
 //			c.receiveChunkedFile(new_id, new_rev);
-//			System.exit(0);
+			System.exit(0);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
