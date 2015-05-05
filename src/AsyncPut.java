@@ -58,7 +58,7 @@ public class AsyncPut extends AsyncTask{
 			out.close();
 
 			if (httpCon.getResponseCode() != 201) {
-				return "Not received.";
+				throw new Exception("Not received.");
 			} else {
 				InputStream response = httpCon.getInputStream();
 				String resp_str = IOUtils.toString(response);
@@ -68,6 +68,8 @@ public class AsyncPut extends AsyncTask{
 				return resp_str;
 			}
 		} catch (Exception e) {
+//			e.printStackTrace();
+			fileChannel.close();
 			throw new Exception(""+start);
 		}
 	}

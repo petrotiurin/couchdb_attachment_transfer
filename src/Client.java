@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.EmptyStackException;
 import java.util.Stack;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -19,6 +20,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.io.OutputStreamWriter;
 
 import org.json.JSONException;
@@ -50,11 +52,11 @@ class Client {
 	private static int THREAD_NUM = 4;
 	
 	private final Stack<Integer> chunkStack = new Stack<Integer>();
-	private final int chunks_in_process[] = new int[THREAD_NUM*2];
 	private final String filename;
 	private final URL url;
 	private final String doc_id, rev_id;
 	
+	private AtomicInteger c = new AtomicInteger(0);
 	
 	private ListeningExecutorService executor;
 	
@@ -104,6 +106,7 @@ class Client {
 		// Tell server to send the file.
 		JSONObject jo = this.finaliseUpload(url, doc_id, rev_id);
 		System.out.println("Upload finished!" + rev_id);
+		System.out.println(c.get());
 		return null;
 //		return jo;
 	}
@@ -117,8 +120,8 @@ class Client {
 						+ DB_NAME + "/" + doc_id);
 				HttpURLConnection httpCon = (HttpURLConnection) url.openConnection();
 				httpCon.setDoOutput(true);
-				httpCon.setConnectTimeout(300);
-				httpCon.setReadTimeout(300);
+				httpCon.setConnectTimeout(500);
+				httpCon.setReadTimeout(500);
 				httpCon.setRequestMethod("PUT");
 				httpCon.setRequestProperty("Content-Type", "application/json");
 				OutputStreamWriter out = new OutputStreamWriter(httpCon.getOutputStream());
@@ -138,9 +141,9 @@ class Client {
 		}
 	}
 	
-	private ListenableFuture<Object> createNewTask(String className) throws IOException, ClassNotFoundException {
+	private ListenableFuture<Object> createNewTask(String className) throws IOException, ClassNotFoundException, EmptyStackException {
 		int chunk = chunkStack.pop();
-//		System.out.println(chunk);
+		System.out.println(chunk);
 		long start = chunk*CH_SIZE;
 		long end = (chunk+1)*CH_SIZE;
 		AsyncTask at;
@@ -158,6 +161,8 @@ class Client {
 						addCallback(new_lf, cdl);
 					} catch (ClassNotFoundException|IOException e) {
 						e.printStackTrace();
+					} catch (EmptyStackException e) {
+						cdl.countDown();
 					}
 				} else {
 					cdl.countDown();
@@ -167,11 +172,14 @@ class Client {
 				Long start = Long.parseLong(thrown.getMessage());
 				chunkStack.push((int) (start/Client.CH_SIZE));
 //				System.out.println(start);
+				c.incrementAndGet();
 				try {
 					ListenableFuture<Object> new_lf = createNewTask(this.getClass().getName());
 					addCallback(new_lf, cdl);
 				} catch (ClassNotFoundException|IOException e) {
 					e.printStackTrace();
+				} catch (EmptyStackException e) {
+					cdl.countDown();
 				}
 			}
 		});
@@ -181,7 +189,7 @@ class Client {
 	private void chunkedOperation(URL url, Stack<Integer> stack, String filename, String doc_id, String rev_id, long flength, String className) throws IOException, InterruptedException, ClassNotFoundException {
 		
 		int nsimul_tasks = THREAD_NUM;
-		
+		if (nsimul_tasks > stack.size() - 1) nsimul_tasks = stack.size() - 1;
 		CountDownLatch cdl = new CountDownLatch(nsimul_tasks);
 		
 		// Initial send threads
@@ -191,6 +199,8 @@ class Client {
 		}
 		
 		cdl.await();
+		
+		
 	}
 	
 	// Tell server to send file to the database
@@ -214,6 +224,10 @@ class Client {
 			} catch (SocketTimeoutException|JSONException e) {
 				// Just retry
 				e.printStackTrace();
+			} catch (IOException e) {
+				System.out.println(rev_id);
+				e.printStackTrace();
+//				throw e;
 			}
 		}
 	}

@@ -8,7 +8,6 @@ class ChunkedTransfer{
 		try {
 			JSONObject jo = Client.createNewDoc();
 			Client c = new Client(args[0], jo.getString("id"), jo.getString("rev"), Integer.parseInt(args[1]));
-//			c.CH_SIZE = Integer.parseInt(args[1]);
 			JSONObject new_jo = c.sendChunkedFile(args[0], jo.getString("id"), jo.getString("rev"));
 //			String new_id, new_rev;
 //			try {
